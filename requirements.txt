@@ -1,0 +1,11 @@
+# Core dependencies for bill processing
+paddleocr
+paddlepaddle
+opencv-python
+openpyxl
+tabulate
+
+# Web interface dependencies
+flask
+flask-cors
+werkzeug

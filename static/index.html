@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SnapLedger - 智能账单识别</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📱 SnapLedger</h1>
+            <p>智能账单识别与管理系统</p>
+        </header>
+
+        <main>
+            <div class="tab-bar">
+                <button class="tab-btn active" data-tab-target="uploadTab">上传识别</button>
+                <button class="tab-btn" data-tab-target="analyticsTab">消费统计</button>
+                <button class="tab-btn" data-tab-target="configTab">分类配置</button>
+            </div>
+
+            <section id="uploadTab" class="tab-content active">
+                <!-- File Upload Section -->
+                <section class="upload-section">
+                    <!-- Date Selection -->
+                    <div class="date-selection">
+                        <label for="billDate">账单日期:</label>
+                        <input type="date" id="billDate" class="date-input">
+                    </div>
+
+                    <div class="upload-area" id="uploadArea">
+                        <div class="upload-content">
+                            <div class="upload-icon">🖼️</div>
+                            <h3>拖拽账单截图到这里</h3>
+                            <p>或者 <button class="browse-btn" id="browseBtn">选择文件</button></p>
+                            <small>支持 JPG, PNG 格式，最大 16MB</small>
+                        </div>
+                        <input type="file" id="fileInput" multiple accept=".jpg,.jpeg,.png" style="display: none;">
+                    </div>
+                    
+                    <!-- File Preview -->
+                    <div class="file-preview" id="filePreview" style="display: none;">
+                        <h4>已选择的文件</h4>
+                        <div class="preview-list" id="previewList"></div>
+                        <button class="process-btn" id="processBtn">开始处理</button>
+                    </div>
+                </section>
+
+                <!-- Processing Status -->
+                <section class="status-section" id="statusSection" style="display: none;">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>正在处理账单...</p>
+                    </div>
+                </section>
+
+                <!-- Results Section -->
+                <section class="results-section" id="resultsSection" style="display: none;">
+                    <h3>开销</h3>
+                    <div class="results-table-container">
+                        <table class="results-table" id="resultsTable">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="uploadSelectAll"></th>
+                                    <th>预览</th>
+                                    <th>商户</th>
+                                    <th>金额</th>
+                                    <th>分类</th>
+                                    <th>账单日期</th>
+                                    <th>状态</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsBody">
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="save-btn" id="saveBtn">确认保存</button>
+                        <button class="danger-btn" id="bulkDeleteBtn">批量删除</button>
+                    </div>
+                </section>
+
+                <!-- Messages -->
+                <div class="message" id="messageArea" style="display: none;"></div>
+            </section>
+
+            <section id="analyticsTab" class="tab-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h3>消费统计</h3>
+                            <p class="muted">查看分类统计与账单明细</p>
+                        </div>
+                        <div class="analytics-filter">
+                            <div class="filter-row">
+                                <label>关键词
+                                    <input type="text" id="analyticsKeyword" placeholder="商户/备注">
+                                </label>
+                                <label>大类
+                                    <select id="analyticsMajor"></select>
+                                </label>
+                                <label>小类
+                                    <select id="analyticsMinor"></select>
+                                </label>
+                            </div>
+                            <div class="filter-row">
+                                <label>开始
+                                    <input type="date" id="analyticsStart">
+                                </label>
+                                <label>结束
+                                    <input type="date" id="analyticsEnd">
+                                </label>
+                                <div class="quick-range">
+                                    <button class="chip-btn" data-range="today" type="button">当日</button>
+                                    <button class="chip-btn" data-range="week" type="button">当周</button>
+                                    <button class="chip-btn" data-range="month" type="button">当月</button>
+                                    <button class="chip-btn" data-range="year" type="button">当年</button>
+                                </div>
+                                <button class="secondary-btn" id="analyticsRefreshBtn">刷新</button>
+                                <button class="secondary-btn" id="analyticsResetBtn">重置</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="summary-cards">
+                        <div class="info-card">
+                            <div class="info-label">总消费</div>
+                            <div class="info-value" id="summaryTotal">-</div>
+                            <div class="info-meta" id="summaryRange">全部时间</div>
+                        </div>
+                        <div class="info-card">
+                            <div class="info-label">账单笔数</div>
+                            <div class="info-value" id="summaryCount">-</div>
+                            <div class="info-meta" id="summaryCountMeta"></div>
+                        </div>
+                    </div>
+
+                    <div class="analytics-grid">
+                        <div class="card">
+                            <div class="card-header">
+                                <div>
+                                    <div class="card-title">按类别统计</div>
+                                    <div class="card-subtitle">占比 = 分类金额 / 总金额</div>
+                                </div>
+                                <button class="link-btn" id="refreshCategoriesBtn">重新计算</button>
+                            </div>
+                            <div class="table-container">
+                                <table class="simple-table">
+                                    <thead>
+                                        <tr>
+                                            <th>类别</th>
+                                            <th>金额</th>
+                                            <th>笔数</th>
+                                            <th>占比</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="categoryTableBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-title">搜索详情</div>
+                                <div class="card-subtitle">每笔账单可编辑，支持批量删除</div>
+                            </div>
+                            <div class="panel-actions">
+                                <button class="secondary-btn" id="analyticsExportBtn">导出</button>
+                                <button class="danger-btn" id="analyticsBulkDeleteBtn">批量删除</button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <table class="simple-table">
+                                <thead>
+                                    <tr>
+                                        <th><input type="checkbox" id="analyticsSelectAll"></th>
+                                        <th>关键字</th>
+                                        <th>类别</th>
+                                        <th>金额</th>
+                                        <th>日期</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="analyticsBillsBody"></tbody>
+                            </table>
+                        </div>
+                        <div class="pagination">
+                            <div class="page-info" id="analyticsPageInfo">-</div>
+                            <div class="page-controls">
+                                <label>每页
+                                    <select id="analyticsPageSize">
+                                        <option value="10">10</option>
+                                        <option value="20" selected>20</option>
+                                        <option value="50">50</option>
+                                    </select>
+                                </label>
+                                <button class="secondary-btn" id="analyticsPrevBtn">上一页</button>
+                                <button class="secondary-btn" id="analyticsNextBtn">下一页</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="message" id="analyticsMessage" style="display: none;"></div>
+                </div>
+            </section>
+
+            <section id="configTab" class="tab-content">
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h3>分类目录</h3>
+                            <p class="muted">维护大类与小类关系，修改后将同步更新规则对应分类</p>
+                        </div>
+                        <div class="panel-actions">
+                            <button class="secondary-btn" id="refreshCategoryGroupsBtn">刷新分类</button>
+                            <button class="danger-btn" id="categoryGroupBulkDeleteBtn">批量删除</button>
+                        </div>
+                    </div>
+
+                    <form id="newCategoryForm" class="rule-form">
+                        <div class="form-group">
+                            <label for="newCategoryMajor">大类</label>
+                            <input type="text" id="newCategoryMajor" placeholder="例如：餐饮" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="newCategoryMinor">小类</label>
+                            <input type="text" id="newCategoryMinor" placeholder="例如：咖啡">
+                        </div>
+                        <div class="form-group">
+                            <button class="save-btn" type="submit">新增分类</button>
+                        </div>
+                    </form>
+
+                    <div class="table-container">
+                        <table class="simple-table">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="categoryGroupSelectAll"></th>
+                                    <th>大类</th>
+                                    <th>小类</th>
+                                    <th>分类全称</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categoryGroupTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <div class="panel-header">
+                        <div>
+                            <h3>分类规则</h3>
+                            <p class="muted">配置关键词与类别的对应关系，调节优先级</p>
+                        </div>
+                        <div class="panel-actions">
+                            <button class="secondary-btn" id="refreshRulesBtn">刷新规则</button>
+                            <button class="danger-btn" id="ruleBulkDeleteBtn">批量删除</button>
+                        </div>
+                    </div>
+
+                    <form id="newRuleForm" class="rule-form">
+                        <div class="form-group">
+                            <label for="newRuleKeyword">关键词</label>
+                            <input type="text" id="newRuleKeyword" placeholder="例如：滴滴" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="newRuleCategory">分类</label>
+                            <select id="newRuleCategory" class="category-select" required></select>
+                        </div>
+                        <div class="form-group">
+                            <label for="newRulePriority">优先级</label>
+                            <input type="number" id="newRulePriority" min="1" value="1" required>
+                        </div>
+                        <div class="form-group checkbox-row">
+                            <input type="checkbox" id="newRuleWeak">
+                            <label for="newRuleWeak">弱匹配（可被更强关键词覆盖）</label>
+                        </div>
+                        <div class="form-group">
+                            <button class="save-btn" type="submit">新增规则</button>
+                        </div>
+                    </form>
+
+                    <div class="table-container">
+                        <table class="simple-table">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="ruleSelectAll"></th>
+                                    <th>关键词</th>
+                                    <th>分类</th>
+                                    <th>优先级</th>
+                                    <th>弱匹配</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ruleTableBody"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="message" id="configMessage" style="display: none;"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

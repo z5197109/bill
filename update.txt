@@ -1,0 +1,203 @@
+📂 推荐的工程目录结构
+请按照下面的结构整理你的文件夹（假设项目根目录叫 SnapLedger）：
+
+Plaintext
+
+SnapLedger/
+│
+├── run.py                 # 【入口】以前的 main.py，只负责启动
+├── config.py              # 【配置】路径配置、关键词规则
+├── requirements.txt       # 【依赖】项目依赖库列表
+│
+├── app/                   # 【源码包】核心代码都在这里
+│   ├── __init__.py        # (空文件) 标识这是一个 Python 包
+│   ├── ocr_engine.py      # OCR 识别逻辑
+│   ├── bill_parser.py     # 账单解析逻辑
+│   ├── storage.py         # 存储逻辑 (Excel/DB)
+│   └── analytics.py       # 统计分析逻辑
+│
+├── data/                  # 【输入数据】存放你的账单截图
+│   └── bills/             # 建议再深一层，以后可能有其他图片
+│       └── 0107_1.jpg
+│
+└── output/                # 【输出结果】程序生成的 Excel 和 DB
+    ├── ledger.db
+    └── 我的记账本.xlsx
+🛠️ 代码修改指南
+为了适应这个新结构，我们需要修改几个文件的路径逻辑和引用方式。最核心的改变是：不再使用相对路径（直接写文件名），而是使用基于项目根目录的绝对路径。
+
+1. 修改 config.py (管理所有路径)
+这是最关键的一步。我们需要在这里根据项目根目录自动计算出 data 和 output 的位置，这样无论你在哪里运行脚本，它都能找到文件。
+
+Python
+
+# config.py
+import os
+
+# === 1. 路径配置 (自动获取) ===
+# 获取当前文件 (config.py) 所在的目录，也就是项目根目录
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 定义图片存放目录: SnapLedger/data/bills/
+IMG_DIR = os.path.join(BASE_DIR, "data", "bills")
+
+# 定义输出目录: SnapLedger/output/
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+
+# 确保输出目录存在，如果不存在自动创建
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
+
+# 定义输出文件的完整路径
+DB_PATH = os.path.join(OUTPUT_DIR, "ledger.db")
+EXCEL_PATH = os.path.join(OUTPUT_DIR, "我的记账本.xlsx")
+
+
+# === 2. 业务规则配置 (保持不变) ===
+CATEGORY_RULES = {
+    # ... (这里放你之前的罗技、星巴克等规则，保持不变) ...
+    "罗技": "数码/电脑配件",
+    # ...
+}
+
+WEAK_KEYWORDS = ["百亿补贴", "拼多多", "淘宝", "京东", "云闪付", "待发货", "退款"]
+OCR_CONFIDENCE_THRESHOLD = 0.6
+2. 在 app/ 目录下创建 __init__.py
+直接在 app 文件夹里新建一个叫 __init__.py 的空文件即可。这告诉 Python app 文件夹是一个可以被导入的包。
+
+3. 修改 app/storage.py (使用新路径)
+修改 init_file 和 init_db 方法，不再使用默认文件名，而是使用 config.py 里定义好的全路径。
+
+Python
+
+# app/storage.py
+import os
+import sqlite3
+import json
+import datetime
+from openpyxl import Workbook, load_workbook
+# 导入根目录的配置
+import config 
+
+class ExcelSaver:
+    # 默认使用 config 中定义的路径
+    def __init__(self, filename=config.EXCEL_PATH): 
+        self.filename = filename
+        self.init_file()
+    
+    # ... (其余代码保持不变，因为 self.filename 已经是全路径了) ...
+
+class DatabaseSaver:
+    # 默认使用 config 中定义的路径
+    def __init__(self, db_name=config.DB_PATH):
+        self.db_name = db_name
+        self.init_db()
+
+    # ... (其余代码保持不变) ...
+4. 修改 app/analytics.py (使用新路径)
+同样，让分析模块读取 config 里的数据库路径。
+
+Python
+
+# app/analytics.py
+import sqlite3
+import config  # 导入配置
+
+class LedgerAnalytics:
+    def __init__(self, db_name=config.DB_PATH): # 使用配置路径
+        self.db_name = db_name
+
+    # ... (其余代码保持不变) ...
+5. 修改 app/bill_parser.py (修正导入)
+因为 ocr_engine 和它在同一个包里，引用方式微调（或者保持原样通常也可以，但显式相对导入更好）。
+
+Python
+
+# app/bill_parser.py
+from .ocr_engine import SimpleOCR # 使用 . 表示当前目录
+import config # 导入根目录配置
+
+class BillParser:
+    # ... (其余代码保持不变) ...
+6. 重写入口文件 run.py (原 main.py)
+现在入口文件非常干净，只负责从 app 包里导入模块，并把 data 目录下的所有图片都跑一遍。
+
+Python
+
+# run.py
+import os
+import config # 导入配置
+from app.bill_parser import BillParser
+from app.storage import ExcelSaver, DatabaseSaver
+from app.analytics import LedgerAnalytics
+
+def main():
+    print(f"🚀 启动智图记账 (数据目录: {config.IMG_DIR})")
+
+    # 1. 初始化模块
+    parser = BillParser()
+    excel = ExcelSaver()
+    db = DatabaseSaver()
+    analytics = LedgerAnalytics()
+
+    # 2. 遍历 data/bills 目录下的所有图片
+    # 这样你只需要把新截图丢进文件夹，运行脚本就会自动处理所有图
+    if not os.path.exists(config.IMG_DIR):
+        print(f"❌ 错误：找不到图片目录 {config.IMG_DIR}")
+        return
+
+    # 获取所有 .jpg, .png 文件
+    image_files = [f for f in os.listdir(config.IMG_DIR) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+
+    if not image_files:
+        print("⚠️ 目录中没有找到图片文件。")
+        return
+
+    print(f"📸 发现 {len(image_files)} 张待处理账单...")
+
+    for img_name in image_files:
+        # 拼接图片的完整路径
+        img_full_path = os.path.join(config.IMG_DIR, img_name)
+        
+        print(f"\n--- 处理: {img_name} ---")
+        
+        try:
+            # A. 识别
+            bill_data = parser.parse(img_full_path)
+            
+            # B. 打印
+            print(f"   ✅ 识别: {bill_data['merchant']} | ¥{bill_data['amount']}")
+            
+            # C. 存储
+            excel.save(bill_data, img_name)
+            db.save(bill_data, img_name)
+            
+        except Exception as e:
+            print(f"   ❌ 处理失败: {e}")
+
+    # 3. 处理完毕，展示统计看板
+    print("\n" + "="*30)
+    print("🏁 所有账单处理完成，最新统计如下：")
+    analytics.show_dashboard()
+
+if __name__ == "__main__":
+    main()
+🚀 如何运行新结构
+整理文件：按照最上面的目录结构，手动移动文件，创建文件夹。
+
+放图片：把 0107_1.jpg 移动到 data/bills/ 文件夹里。
+
+运行：在 SnapLedger 根目录下，打开终端运行：
+
+Bash
+
+python run.py
+这样改完后，以后你的使用流程就是：
+
+手机截图。
+
+把一堆截图全丢进 data/bills/。
+
+双击运行 run.py。
+
+去 output/ 文件夹里拿结果。
