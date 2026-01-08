@@ -1,120 +1,235 @@
 # ocr_engine.py
-import cv2
-import numpy as np
-import inspect
+from __future__ import annotations
+
+import os
+import threading
+import queue
+import atexit
 from dataclasses import dataclass
-from typing import List
-from paddleocr import PaddleOCR
-import config
+from typing import List, Optional, Tuple
+from concurrent.futures import Future
 
 
 @dataclass
-class OCRResult:
+class OCRLine:
     text: str
-    confidence: float
-    box: List[List[float]]
+    conf: Optional[float] = None
+    box: Optional[list] = None
 
 
-def _filter_kwargs(cls, kwargs: dict) -> dict:
+class PaddleOCRQueueEngine:
     """
-    兼容不同 PaddleOCR 版本：只保留 PaddleOCR.__init__ 支持的参数，避免报错
+    全局单实例 PaddleOCR（2.x）+ 线程安全队列
+    - PaddleOCR 只在 worker 线程初始化一次
+    - run(image_path) 会提交任务并阻塞等待结果（内部 Future）
     """
-    try:
-        sig = inspect.signature(cls.__init__)
-        return {k: v for k, v in kwargs.items() if k in sig.parameters}
-    except Exception:
-        return kwargs
 
+    def __init__(
+        self,
+        use_gpu: bool = True,
+        lang: str = "ch",
+        use_angle_cls: bool = False,
+        cpu_threads: int = 6,
+        queue_maxsize: int = 256,
+        warmup: bool = False,
+    ):
+        self.use_gpu = use_gpu
+        self.lang = lang
+        self.use_angle_cls = use_angle_cls
+        self.cpu_threads = cpu_threads
+        self.queue_maxsize = queue_maxsize
+        self.warmup = warmup
 
-class SimpleOCR:
-    def __init__(self, use_gpu: bool = False, cpu_threads: int = 8):
-        print("⏳ 初始化 OCR 引擎...")
+        self._q: "queue.Queue[Tuple[str, Future]]" = queue.Queue(maxsize=queue_maxsize)
+        self._stop_evt = threading.Event()
+        self._worker = threading.Thread(target=self._worker_loop, name="paddleocr_worker", daemon=True)
+        self._started = False
 
-        init_kwargs = dict(
-            lang="ch",
-            show_log=False,  # 少日志更快
+        # worker 线程里创建的 OCR 实例
+        self._ocr = None
 
-            # GPU/CPU
-            use_gpu=use_gpu,
+    # ---------------- Windows DLL 路径补齐（可选但推荐） ----------------
+    @staticmethod
+    def _add_dll_dirs_for_windows():
+        """
+        Windows 上避免 WinError 127（DLL 依赖找不到）。
+        放到 worker 线程里做，确保 import paddle/paddleocr 前生效。
+        """
+        if os.name != "nt":
+            return
+        try:
+            import site
+            from pathlib import Path
 
-            # —— 方向/纠偏相关：全部关闭（提速明显）
-            use_angle_cls=False,
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
+            sp = Path(site.getsitepackages()[0])
+            dll_dirs = [
+                sp / "nvidia" / "cuda_runtime" / "bin",
+                sp / "nvidia" / "cudnn" / "bin",
+                sp / "nvidia" / "cublas" / "bin",
+                sp / "nvidia" / "cufft" / "bin",
+                sp / "nvidia" / "curand" / "bin",
+                sp / "nvidia" / "cusolver" / "bin",
+                sp / "nvidia" / "cusparse" / "bin",
+                sp / "nvidia" / "nvjitlink" / "bin",
+            ]
+            for d in dll_dirs:
+                if d.exists():
+                    try:
+                        os.add_dll_directory(str(d))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
-            # —— CPU 加速：MKLDNN + 线程数（对 CPU 常见提升）
-            enable_mkldnn=(not use_gpu),
-            cpu_threads=cpu_threads,
+    # ---------------- 生命周期 ----------------
+    def start(self):
+        if self._started:
+            return
+        self._started = True
+        self._worker.start()
 
-            # —— 速度/吞吐：降低检测输入尺寸 + 增大识别 batch
-            det_limit_type="max",
-            det_limit_side_len=960,   # 可在 736/960/1280 之间试
-            rec_batch_num=6,          # 可在 4/6/8 之间试
+    def shutdown(self, wait: bool = True):
+        if not self._started:
+            return
+        self._stop_evt.set()
+        # 用一个任务把 worker 从阻塞的 get() 里唤醒
+        try:
+            f = Future()
+            self._q.put_nowait(("", f))
+        except Exception:
+            pass
+        if wait:
+            self._worker.join(timeout=10)
+
+    # ---------------- 对外接口 ----------------
+    def submit(self, image_path: str) -> Future:
+        """
+        异步提交：返回 Future（调用方可 future.result()）
+        """
+        self.start()
+        fut: Future = Future()
+        self._q.put((image_path, fut))
+        return fut
+
+    def run(self, image_path: str, timeout: Optional[float] = None) -> List[OCRLine]:
+        """
+        同步调用：内部 submit + 等待 Future
+        """
+        fut = self.submit(image_path)
+        return fut.result(timeout=timeout)
+
+    # ---------------- worker 主循环 ----------------
+    def _init_ocr_in_worker(self):
+        # 1) DLL search path（Win）
+        self._add_dll_dirs_for_windows()
+
+        # 2) import + init
+        from paddleocr import PaddleOCR
+
+        # PaddleOCR 2.x：使用 ocr(img, cls=...)
+        self._ocr = PaddleOCR(
+            use_gpu=self.use_gpu,
+            lang=self.lang,
+            use_angle_cls=self.use_angle_cls,
+            show_log=False,
+            cpu_threads=self.cpu_threads,
         )
 
-        self.use_gpu = use_gpu
-        self.cpu_threads = cpu_threads
-        self.ocr = PaddleOCR(**_filter_kwargs(PaddleOCR, init_kwargs))
+        # 3) warmup（可选）
+        if self.warmup:
+            try:
+                import numpy as np
+                dummy = (np.zeros((64, 256, 3), dtype=np.uint8))
+                _ = self._ocr.ocr(dummy, cls=self.use_angle_cls)
+            except Exception:
+                pass
 
-        # warmup：减少第一张图特别慢
-        dummy = np.zeros((64, 256, 3), dtype=np.uint8)
+    def _worker_loop(self):
         try:
-            self.ocr.ocr(dummy, cls=False)
-        except TypeError:
-            self.ocr.ocr(dummy)
+            self._init_ocr_in_worker()
+        except Exception as e:
+            # 初始化失败：把队列里所有任务都标记失败
+            while True:
+                try:
+                    _, fut = self._q.get_nowait()
+                    if not fut.done():
+                        fut.set_exception(e)
+                except queue.Empty:
+                    break
+            return
 
-        print("✅ OCR 引擎就绪")
+        import cv2
 
-    def run(self, image_path: str) -> List[OCRResult]:
-        # cv2 读取，支持中文路径
-        img = cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
-        if img is None:
-            print(f"❌ 无法读取图片: {image_path}")
-            return []
+        while not self._stop_evt.is_set():
+            try:
+                image_path, fut = self._q.get(timeout=0.2)
+            except queue.Empty:
+                continue
 
-        # 双保险：明确 cls=False（即使 init 里关了，也避免某些版本默认打开）
-        try:
-            result = self.ocr.ocr(img, cls=False)
-        except TypeError:
-            result = self.ocr.ocr(img)
+            if not image_path:
+                # 可能是 shutdown 唤醒任务
+                if not fut.done():
+                    fut.cancel()
+                continue
 
-        if not result or result[0] is None:
-            return []
+            try:
+                img = cv2.imread(image_path)
+                if img is None:
+                    fut.set_result([])
+                    continue
 
-        first_item = result[0]
-        parsed_results: List[OCRResult] = []
+                res = self._ocr.ocr(img, cls=self.use_angle_cls)
 
-        # 兼容字典格式 (PaddleOCR v2.7+ / v3+ 常见)
-        if isinstance(first_item, dict):
-            texts = first_item.get("rec_texts", first_item.get("rec_text", []))
-            scores = first_item.get("rec_scores", first_item.get("rec_score", []))
-            boxes = first_item.get("dt_polys", first_item.get("rec_polys", []))
+                # 兼容 PaddleOCR 2.x 常见返回结构
+                if isinstance(res, list) and len(res) == 1 and isinstance(res[0], list):
+                    lines = res[0]
+                else:
+                    lines = res
 
-            count = len(texts)
-            if len(scores) < count:
-                scores = list(scores) + [1.0] * (count - len(scores))
-            if len(boxes) < count:
-                boxes = list(boxes) + [[]] * (count - len(boxes))
+                out: List[OCRLine] = []
+                if isinstance(lines, list):
+                    for item in lines:
+                        try:
+                            box = item[0]
+                            txt = item[1][0]
+                            conf = float(item[1][1])
+                            if txt:
+                                out.append(OCRLine(text=txt, conf=conf, box=box))
+                        except Exception:
+                            continue
 
-            for i in range(count):
-                s = float(scores[i]) if scores[i] is not None else 1.0
-                if s > config.OCR_CONFIDENCE_THRESHOLD:
-                    parsed_results.append(OCRResult(text=texts[i], confidence=s, box=boxes[i]))
-            return parsed_results
+                fut.set_result(out)
 
-        # 兼容旧版列表格式
-        if isinstance(first_item, list):
-            for line in result[0]:
-                if isinstance(line, (list, tuple)) and len(line) >= 2:
-                    box = line[0]
-                    if isinstance(line[1], (list, tuple)):
-                        text, score = line[1][0], line[1][1]
-                    else:
-                        text, score = line[1], 1.0
+            except Exception as ex:
+                fut.set_exception(ex)
 
-                    score = float(score) if score is not None else 1.0
-                    if score > config.OCR_CONFIDENCE_THRESHOLD:
-                        parsed_results.append(OCRResult(text=text, confidence=score, box=box))
 
-        return parsed_results
+# ---------------- 全局单例 ----------------
+_GLOBAL_LOCK = threading.Lock()
+_GLOBAL_ENGINE: Optional[PaddleOCRQueueEngine] = None
+
+
+def get_global_paddle_ocr_engine(
+    use_gpu: bool = True,
+    lang: str = "ch",
+    use_angle_cls: bool = False,
+    cpu_threads: int = 6,
+    warmup: bool = False,
+) -> PaddleOCRQueueEngine:
+    """
+    获取全局单例引擎（同进程只初始化一次 PaddleOCR）。
+    注意：如果你用不同参数多次调用，这里默认“第一次创建的配置”为准。
+    """
+    global _GLOBAL_ENGINE
+    with _GLOBAL_LOCK:
+        if _GLOBAL_ENGINE is None:
+            _GLOBAL_ENGINE = PaddleOCRQueueEngine(
+                use_gpu=use_gpu,
+                lang=lang,
+                use_angle_cls=use_angle_cls,
+                cpu_threads=cpu_threads,
+                warmup=warmup,
+            )
+            _GLOBAL_ENGINE.start()
+            atexit.register(lambda: _GLOBAL_ENGINE.shutdown(wait=False))
+        return _GLOBAL_ENGINE

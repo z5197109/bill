@@ -64,7 +64,7 @@
                                 <tr>
                                     <th><input type="checkbox" id="uploadSelectAll"></th>
                                     <th>预览</th>
-                                    <th>商户</th>
+                                    <th>商品</th>
                                     <th>金额</th>
                                     <th>分类</th>
                                     <th>账单日期</th>
@@ -305,5 +305,15 @@
     </div>
 
     <script src="app.js"></script>
+    <div class="modal-overlay" id="confirmModal" style="display: none;">
+        <div class="modal">
+            <div class="modal-title">确认操作</div>
+            <div class="modal-body" id="confirmMessage">确认执行该操作？</div>
+            <div class="modal-actions">
+                <button class="secondary-btn" id="confirmCancelBtn">取消</button>
+                <button class="danger-btn" id="confirmOkBtn">确定</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

@@ -371,8 +371,15 @@ class BillProcessorApp {
         }
     }
 
+    getFileKey(file) {
+        if (!file) return '';
+        return `${file.name}::${file.size}::${file.lastModified}`;
+    }
+
     handleFileSelect(files) {
         const validFiles = [];
+        const duplicateNames = [];
+        const existingKeys = new Set((this.selectedFiles || []).map((file) => this.getFileKey(file)));
         const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png'];
         const maxSize = 16 * 1024 * 1024; // 16MB
 
@@ -385,11 +392,21 @@ class BillProcessorApp {
                 this.showMessage(`文件 ${file.name} 太大，请选择小于 16MB 的文件`, 'error');
                 continue;
             }
+            const fileKey = this.getFileKey(file);
+            if (existingKeys.has(fileKey)) {
+                duplicateNames.push(file.name);
+                continue;
+            }
+            existingKeys.add(fileKey);
             validFiles.push(file);
         }
 
+        if (duplicateNames.length > 0) {
+            this.showMessage(`已跳过 ${duplicateNames.length} 个重复文件`, 'info');
+        }
+
         if (validFiles.length > 0) {
-            this.selectedFiles = validFiles;
+            this.selectedFiles = (this.selectedFiles || []).concat(validFiles);
             this.showFilePreview();
             this.scrollToBottom();
         }
@@ -644,7 +661,7 @@ class BillProcessorApp {
         selectAll.checked = checkboxes.every((input) => input.checked);
     }
 
-    bulkDeleteResults() {
+    async bulkDeleteResults() {
         const selected = Array.from(document.querySelectorAll('.upload-select:checked'))
             .map((input) => parseInt(input.dataset.index, 10))
             .filter((index) => !Number.isNaN(index));
@@ -654,7 +671,8 @@ class BillProcessorApp {
             return;
         }
 
-        if (!confirm(`确定要删除选中的 ${selected.length} 条账单吗？`)) {
+        const confirmed = await this.showConfirmModal(`确定要删除选中的 ${selected.length} 条账单吗？`);
+        if (!confirmed) {
             return;
         }
 
@@ -899,17 +917,93 @@ class BillProcessorApp {
         }
     }
 
-    showMessage(message, type = 'info', elementId = 'messageArea') {
-        const messageArea = document.getElementById(elementId);
-        if (!messageArea) return;
+    getToastContainer() {
+        let container = document.getElementById('toastContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toastContainer';
+            container.className = 'toast-container';
+            document.body.appendChild(container);
+        }
+        return container;
+    }
 
-        messageArea.textContent = message;
-        messageArea.className = `message ${type}`;
-        messageArea.style.display = 'block';
-        
-        setTimeout(() => {
-            messageArea.style.display = 'none';
-        }, 5000);
+    showMessage(message, type = 'info', elementId = 'messageArea') {
+        const container = this.getToastContainer();
+        const toast = document.createElement('div');
+        toast.className = `toast message ${type}`;
+        toast.textContent = message;
+        container.appendChild(toast);
+
+        requestAnimationFrame(() => {
+            toast.classList.add('show');
+        });
+
+        const timeoutId = setTimeout(() => {
+            toast.classList.remove('show');
+            toast.classList.add('hide');
+            setTimeout(() => toast.remove(), 250);
+        }, 3000);
+
+        toast.addEventListener('click', () => {
+            clearTimeout(timeoutId);
+            toast.classList.remove('show');
+            toast.classList.add('hide');
+            setTimeout(() => toast.remove(), 250);
+        });
+    }
+
+    showConfirmModal(message) {
+        const modal = document.getElementById('confirmModal');
+        const messageEl = document.getElementById('confirmMessage');
+        const cancelBtn = document.getElementById('confirmCancelBtn');
+        const okBtn = document.getElementById('confirmOkBtn');
+
+        if (!modal || !messageEl || !cancelBtn || !okBtn) {
+            return Promise.resolve(confirm(message));
+        }
+
+        messageEl.textContent = message || '确认执行该操作？';
+        modal.style.display = 'flex';
+
+        return new Promise((resolve) => {
+            const cleanup = () => {
+                modal.style.display = 'none';
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+                modal.removeEventListener('click', onOverlay);
+                document.removeEventListener('keydown', onKey);
+            };
+
+            const onOk = () => {
+                cleanup();
+                resolve(true);
+            };
+
+            const onCancel = () => {
+                cleanup();
+                resolve(false);
+            };
+
+            const onOverlay = (event) => {
+                if (event.target === modal) {
+                    cleanup();
+                    resolve(false);
+                }
+            };
+
+            const onKey = (event) => {
+                if (event.key === 'Escape') {
+                    cleanup();
+                    resolve(false);
+                }
+            };
+
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+            modal.addEventListener('click', onOverlay);
+            document.addEventListener('keydown', onKey);
+        });
     }
 
     showImageModal(imageData) {
@@ -1255,7 +1349,8 @@ class BillProcessorApp {
             return;
         }
 
-        if (!confirm(`确定要删除选中的 ${selected.length} 条账单吗？`)) {
+        const confirmed = await this.showConfirmModal(`确定要删除选中的 ${selected.length} 条账单吗？`);
+        if (!confirmed) {
             return;
         }
 
@@ -1332,7 +1427,8 @@ class BillProcessorApp {
     }
 
     async deleteAnalyticsBill(billId) {
-        if (!confirm('确定要删除该账单吗？')) return;
+        const confirmed = await this.showConfirmModal('确定要删除该账单吗？');
+        if (!confirmed) return;
 
         try {
             await this.fetchJson(`/api/bills/${billId}`, { method: 'DELETE' });
@@ -1615,7 +1711,8 @@ class BillProcessorApp {
             return;
         }
 
-        if (!confirm(`确定要删除选中的 ${selected.length} 个分类吗？`)) {
+        const confirmed = await this.showConfirmModal(`确定要删除选中的 ${selected.length} 个分类吗？`);
+        if (!confirmed) {
             return;
         }
 
@@ -1721,7 +1818,8 @@ class BillProcessorApp {
     }
 
     async deleteCategoryGroup(categoryId) {
-        if (!confirm('确定要删除该分类吗？')) return;
+        const confirmed = await this.showConfirmModal('确定要删除该分类吗？');
+        if (!confirmed) return;
 
         try {
             await this.fetchJson(`/api/config/category-groups/${categoryId}`, { method: 'DELETE' });
@@ -1869,7 +1967,8 @@ class BillProcessorApp {
             return;
         }
 
-        if (!confirm(`确定要删除选中的 ${selected.length} 条规则吗？`)) {
+        const confirmed = await this.showConfirmModal(`确定要删除选中的 ${selected.length} 条规则吗？`);
+        if (!confirmed) {
             return;
         }
 
@@ -1974,7 +2073,8 @@ class BillProcessorApp {
     }
 
     async deleteCategoryRule(ruleId) {
-        if (!confirm('确定要删除该规则吗？')) return;
+        const confirmed = await this.showConfirmModal('确定要删除该规则吗？');
+        if (!confirmed) return;
 
         try {
             await this.fetchJson(`/api/config/categories/${ruleId}`, { method: 'DELETE' });

@@ -53,6 +53,12 @@ CORS(app)  # Enable CORS for API endpoints
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 
+
+import os
+import threading
+import time
+
+
 # Global variables for processing
 bill_parser = None
 excel_saver = None
@@ -70,32 +76,61 @@ import os
 
 _init_lock = threading.Lock()
 
-def init_processors():
-    """Initialize bill processing components (thread-safe)"""
+def init_processors(*, need_parser=False, need_savers=False, need_db=False):
     global bill_parser, excel_saver, db_saver, enhanced_db
 
-    # 快速路径
-    if bill_parser is not None:
+    # ✅ 快速路径：本次需要的都准备好才 return
+    if ((not need_parser or bill_parser is not None) and
+        (not need_savers or (excel_saver is not None and db_saver is not None)) and
+        (not need_db or enhanced_db is not None)):
         return
 
     with _init_lock:
-        # 双重检查，防止并发重复初始化
-        if bill_parser is None:
-            # 这里建议显式传你优化过的参数（见第2点）
+        if need_parser and bill_parser is None:
             cpu = os.cpu_count() or 8
-            cpu_threads = min(8, max(2, cpu // 2))  # 经验值：别开太大，避免和线程池打架
+            cpu_threads = min(8, max(2, cpu // 2))
 
             bill_parser = BillParser(
-                max_side=640,       # 你第4步的更快预处理默认值
+                max_side=640,
                 jpeg_quality=30,
-                use_gpu=True,       # 有GPU再改 True
+                use_gpu=True,
                 cpu_threads=cpu_threads
             )
 
-            # 下面这些如果 upload 接口用不到，建议延迟初始化（见第3点）
-            excel_saver = ExcelSaver()
-            db_saver = DatabaseSaver()
+        if need_savers:
+            if excel_saver is None:
+                excel_saver = ExcelSaver()
+            if db_saver is None:
+                db_saver = DatabaseSaver()
+
+        if need_db and enhanced_db is None:
             enhanced_db = EnhancedDatabaseManager()
+
+
+_ocr_ready = threading.Event()
+_ocr_error = None
+
+def warmup_ocr_async():
+    global _ocr_error
+    try:
+        # 只初始化 OCR 相关（你用按需 init 的话）
+        init_processors(need_parser=True)  # 或 need_parser=True, need_db=True 看你 parse 依赖
+        # 可选：做一次空跑/小图 warmup，让第一次上传更快
+        # bill_parser.parse(r"data\bills\0107_1.jpg")  # 有现成样例图的话
+        _ocr_ready.set()
+        print("✅ [Warmup] OCR ready")
+    except Exception as e:
+        _ocr_error = e
+        _ocr_ready.set()
+        print(f"❌ [Warmup] OCR init failed: {e}")
+
+def start_warmup_once():
+    # Flask debug reloader：只在真正的子进程做 warmup
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not app.debug:
+        threading.Thread(target=warmup_ocr_async, daemon=True).start()
+
+start_warmup_once()
+
 
 def format_category_name(major, minor):
     major = str(major or '').strip()
@@ -200,7 +235,8 @@ def upload_files():
     """Handle multiple file uploads and process bills"""
     try:
         # ✅ 确保 init_processors() 内部是“只初始化一次”
-        init_processors()
+        init_processors(need_parser=True, need_savers=True, need_db=True)
+
 
         if 'files' not in request.files:
             return jsonify({'success': False, 'error': 'No files provided'}), 400
@@ -786,7 +822,7 @@ def export_bills():
 def get_category_groups():
     """Get all category groups"""
     try:
-        init_processors()
+        init_processors(need_db=True, need_parser=True)
         groups = enhanced_db.get_category_groups()
         groups_data = []
         for group in groups:
@@ -795,8 +831,8 @@ def get_category_groups():
                 'major': group.major,
                 'minor': group.minor,
                 'full_name': format_category_name(group.major, group.minor),
-                'created_at': group.created_at,
-                'updated_at': group.updated_at
+                # 'created_at': group.created_at,
+                # 'updated_at': group.updated_at
             })
         return jsonify({
             'success': True,
@@ -939,34 +975,34 @@ def delete_category_group(category_id):
 @app.route('/api/config/categories', methods=['GET'])
 def get_category_rules():
     """Get all category rules"""
-    try:
-        init_processors()
-        
-        rules = enhanced_db.get_category_rules()
-        
-        # Convert to JSON format
-        rules_data = []
-        for rule in rules:
-            rules_data.append({
-                'id': rule.id,
-                'keyword': rule.keyword,
-                'category': rule.category,
-                'priority': rule.priority,
-                'is_weak': rule.is_weak,
-                'created_at': rule.created_at,
-                'updated_at': rule.updated_at
-            })
-        
-        return jsonify({
-            'success': True,
-            'rules': rules_data
+    # try:
+    init_processors(need_db=True)
+    rules = enhanced_db.get_category_rules()
+
+    
+    # Convert to JSON format
+    rules_data = []
+    for rule in rules:
+        rules_data.append({
+            'id': rule.id,
+            'keyword': rule.keyword,
+            'category': rule.category,
+            'priority': rule.priority,
+            'is_weak': rule.is_weak,
+            'created_at': rule.created_at,
+            'updated_at': rule.updated_at
         })
+    
+    return jsonify({
+        'success': True,
+        'rules': rules_data
+    })
         
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+    # except Exception as e:
+    #     return jsonify({
+    #         'success': False,
+    #         'error': str(e)
+    #     }), 500
 
 @app.route('/api/config/categories', methods=['POST'])
 def create_category_rule():
