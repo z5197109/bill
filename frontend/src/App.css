@@ -1,0 +1,22 @@
+﻿.app {
+  background: #f5f5f5;
+  min-height: 100vh;
+  padding: 16px;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.row-selected td {
+  background: #e6f7ff !important;
+}

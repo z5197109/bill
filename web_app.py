@@ -157,13 +157,28 @@ def format_category_name(major, minor):
 
 @app.route('/')
 def index():
-    """Serve the main HTML page"""
-    return send_from_directory('static', 'index.html')
+    """Serve the main HTML page (React build preferred)"""
+    react_root = os.path.join(app.static_folder, 'react')
+    react_index = os.path.join(react_root, 'index.html')
+    if os.path.exists(react_index):
+        return send_from_directory(react_root, 'index.html')
+    return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/<path:filename>')
 def static_files(filename):
-    """Serve static files"""
-    return send_from_directory('static', filename)
+    """Serve static files from legacy or React build output"""
+    base_path = os.path.join(app.static_folder, filename)
+    react_root = os.path.join(app.static_folder, 'react')
+    react_path = os.path.join(react_root, filename)
+
+    if os.path.exists(base_path):
+        return send_from_directory(app.static_folder, filename)
+    if os.path.exists(react_path):
+        return send_from_directory(react_root, filename)
+    # fallback to React index for SPA routing if build exists
+    if os.path.exists(os.path.join(react_root, 'index.html')):
+        return send_from_directory(react_root, 'index.html')
+    return send_from_directory(app.static_folder, 'index.html')
 
 # === Ledger API ===
 
@@ -233,10 +248,12 @@ def save_bills():
         for bill_data in bills:
             try:
                 # Validate required fields
-                required_fields = ['merchant', 'amount', 'category', 'filename']
+                required_fields = ['merchant', 'amount', 'filename']
                 for field in required_fields:
                     if field not in bill_data:
                         raise ValueError(f"Missing required field: {field}")
+                if not (bill_data.get('category') or bill_data.get('category_id')):
+                    raise ValueError("Missing required field: category")
                 
                 # Create enhanced bill object
                 from app.enhanced_storage import EnhancedBill
@@ -244,7 +261,8 @@ def save_bills():
                     filename=bill_data['filename'],
                     merchant=str(bill_data['merchant']).strip(),
                     amount=float(bill_data['amount']),
-                    category=str(bill_data['category']).strip(),
+                    category=str(bill_data.get('category') or '').strip(),
+                    category_id=bill_data.get('category_id'),
                     bill_date=bill_data.get('bill_date', ''),
                     raw_text=[],  # We don't have raw_text in the save request
                     is_manual=bill_data.get('is_manual', False),
@@ -474,6 +492,7 @@ def get_bills():
                 'filename': bill.filename,
                 'merchant': bill.merchant,
                 'amount': bill.amount,
+                'category_id': bill.category_id,
                 'category': bill.category,
                 'bill_date': bill.bill_date,
                 'created_at': bill.created_at,
@@ -509,20 +528,26 @@ def create_bill():
             }), 400
         
         # Validate required fields
-        required_fields = ['merchant', 'amount', 'category']
+        required_fields = ['merchant', 'amount']
         for field in required_fields:
-            if field not in data or not data[field]:
+            if field not in data or data[field] in (None, ''):
                 return jsonify({
                     'success': False,
                     'error': f'Missing required field: {field}'
                 }), 400
+        if not (data.get('category') or data.get('category_id')):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: category'
+            }), 400
         
         # Create new bill
         bill = EnhancedBill(
             filename=data.get('filename', 'manual_entry'),
             merchant=str(data['merchant']).strip(),
             amount=float(data['amount']),
-            category=str(data['category']).strip(),
+            category=str(data.get('category') or '').strip(),
+            category_id=data.get('category_id'),
             bill_date=data.get('bill_date', ''),
             raw_text=data.get('raw_text', []),
             is_manual=True,
@@ -547,6 +572,7 @@ def create_bill():
                 'filename': bill.filename,
                 'merchant': bill.merchant,
                 'amount': bill.amount,
+                'category_id': bill.category_id,
                 'category': bill.category,
                 'bill_date': bill.bill_date,
                 'created_at': bill.created_at,
@@ -599,6 +625,8 @@ def update_bill(bill_id):
                 }), 400
         if 'category' in data:
             bill.category = str(data['category']).strip()
+        if 'category_id' in data:
+            bill.category_id = data['category_id']
         if 'bill_date' in data:
             bill.bill_date = data['bill_date']
         if 'filename' in data:
@@ -614,6 +642,7 @@ def update_bill(bill_id):
                 'filename': bill.filename,
                 'merchant': bill.merchant,
                 'amount': bill.amount,
+                'category_id': bill.category_id,
                 'category': bill.category,
                 'bill_date': bill.bill_date,
                 'created_at': bill.created_at,
@@ -1073,6 +1102,7 @@ def get_category_rules():
             rules_data.append({
                 'id': rule.id,
                 'keyword': rule.keyword,
+                'category_id': rule.category_id,
                 'category': rule.category,
                 'priority': rule.priority,
                 'is_weak': rule.is_weak,
@@ -1108,28 +1138,32 @@ def create_category_rule():
             }), 400
         
         # Validate required fields
-        required_fields = ['keyword', 'category']
+        required_fields = ['keyword']
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({
                     'success': False,
                     'error': f'Missing required field: {field}'
                 }), 400
+        if not (data.get('category') or data.get('category_id')):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: category'
+            }), 400
         
         # Create new rule
         rule = CategoryRule(
             keyword=str(data['keyword']).strip(),
-            category=str(data['category']).strip(),
+            category=str(data.get('category') or '').strip(),
+            category_id=data.get('category_id'),
             priority=int(data.get('priority', 1)),
             is_weak=bool(data.get('is_weak', False)),
             ledger_id=ledger_id
         )
 
-        if not enhanced_db.category_exists(rule.category, rule.ledger_id):
-            return jsonify({
-                'success': False,
-                'error': f'Category "{rule.category}" does not exist. Please create it first.'
-            }), 400
+        # category resolution happens in storage; still ensure provided data is not empty
+        if not rule.category and not rule.category_id:
+            return jsonify({'success': False, 'error': 'Category is required'}), 400
         
         # Validate keyword uniqueness
         existing_rules = enhanced_db.get_category_rules(ledger_id)
@@ -1149,6 +1183,7 @@ def create_category_rule():
             'rule': {
                 'id': rule.id,
                 'keyword': rule.keyword,
+                'category_id': rule.category_id,
                 'category': rule.category,
                 'priority': rule.priority,
                 'is_weak': rule.is_weak,
@@ -1210,12 +1245,9 @@ def update_category_rule(rule_id):
         
         if 'category' in data:
             new_category = str(data['category']).strip()
-            if not enhanced_db.category_exists(new_category, rule.ledger_id):
-                return jsonify({
-                    'success': False,
-                    'error': f'Category "{new_category}" does not exist. Please create it first.'
-                }), 400
             rule.category = new_category
+        if 'category_id' in data:
+            rule.category_id = data['category_id']
         if 'priority' in data:
             rule.priority = int(data['priority'])
         if 'is_weak' in data:
