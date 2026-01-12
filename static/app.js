@@ -7,6 +7,9 @@ class BillProcessorApp {
         this.categories = [];
         this.categoryRules = [];
         this.categoryGroups = [];
+        this.ledgers = [];
+        this.currentLedgerId = '';
+        this.selectedCategoryMajor = '';
         this.analyticsLoaded = false;
         this.analyticsPage = 1;
         this.analyticsPageSize = 20;
@@ -21,10 +24,13 @@ class BillProcessorApp {
         this.setupTabs();
         this.setupEventListeners();
         this.setupAnalyticsEvents();
+        this.setupAnalyticsSubTabs();
         this.setupConfigEvents();
+        this.setupLedgerEvents();
         this.setDefaultDate();
         this.startBillDateRefresh();
         this.setDefaultAnalyticsRange();
+        await this.loadLedgers();
         await this.loadCategories();
         this.ensureManualResultsVisible();
     }
@@ -193,6 +199,8 @@ class BillProcessorApp {
         const keywordInput = document.getElementById('analyticsKeyword');
         const majorSelect = document.getElementById('analyticsMajor');
         const minorSelect = document.getElementById('analyticsMinor');
+        const startInput = document.getElementById('analyticsStart');
+        const endInput = document.getElementById('analyticsEnd');
         const quickRangeButtons = document.querySelectorAll('.quick-range .chip-btn');
         const prevBtn = document.getElementById('analyticsPrevBtn');
         const nextBtn = document.getElementById('analyticsNextBtn');
@@ -249,6 +257,14 @@ class BillProcessorApp {
             });
         }
 
+        if (startInput && endInput) {
+            startInput.addEventListener('change', () => {
+                if (startInput.value && endInput.value && startInput.value > endInput.value) {
+                    endInput.value = startInput.value;
+                }
+            });
+        }
+
         if (quickRangeButtons.length > 0) {
             quickRangeButtons.forEach((btn) => {
                 btn.addEventListener('click', () => {
@@ -279,20 +295,49 @@ class BillProcessorApp {
         }
     }
 
+    setupAnalyticsSubTabs() {
+        const tabs = document.querySelectorAll('.sub-tab-btn');
+        const contents = document.querySelectorAll('.sub-tab-content');
+        if (tabs.length === 0 || contents.length === 0) return;
+
+        tabs.forEach((btn) => {
+            btn.addEventListener('click', () => {
+                tabs.forEach((b) => b.classList.remove('active'));
+                contents.forEach((c) => c.classList.remove('active'));
+                btn.classList.add('active');
+
+                const target = document.getElementById(btn.dataset.subTabTarget);
+                if (target) {
+                    target.classList.add('active');
+                }
+            });
+        });
+    }
+
     setupConfigEvents() {
-        const newCategoryForm = document.getElementById('newCategoryForm');
+        const newMajorForm = document.getElementById('newMajorForm');
+        const newMinorForm = document.getElementById('newMinorForm');
         const refreshCategoryGroupsBtn = document.getElementById('refreshCategoryGroupsBtn');
-        const categoryGroupBulkDeleteBtn = document.getElementById('categoryGroupBulkDeleteBtn');
-        const categoryGroupSelectAll = document.getElementById('categoryGroupSelectAll');
+        const majorBulkDeleteBtn = document.getElementById('majorBulkDeleteBtn');
+        const minorBulkDeleteBtn = document.getElementById('minorBulkDeleteBtn');
+        const majorSelectAll = document.getElementById('majorSelectAll');
+        const minorSelectAll = document.getElementById('minorSelectAll');
         const newRuleForm = document.getElementById('newRuleForm');
         const refreshRulesBtn = document.getElementById('refreshRulesBtn');
         const ruleBulkDeleteBtn = document.getElementById('ruleBulkDeleteBtn');
         const ruleSelectAll = document.getElementById('ruleSelectAll');
 
-        if (newCategoryForm) {
-            newCategoryForm.addEventListener('submit', (e) => {
+        if (newMajorForm) {
+            newMajorForm.addEventListener('submit', (e) => {
                 e.preventDefault();
-                this.createCategoryGroup();
+                this.createCategoryMajor();
+            });
+        }
+
+        if (newMinorForm) {
+            newMinorForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                this.createCategoryMinor();
             });
         }
 
@@ -300,14 +345,28 @@ class BillProcessorApp {
             refreshCategoryGroupsBtn.addEventListener('click', () => this.loadCategoryGroups(true));
         }
 
-        if (categoryGroupBulkDeleteBtn) {
-            categoryGroupBulkDeleteBtn.addEventListener('click', () => this.bulkDeleteCategoryGroups());
+        if (majorBulkDeleteBtn) {
+            majorBulkDeleteBtn.addEventListener('click', () => this.bulkDeleteCategoryMajors());
         }
 
-        if (categoryGroupSelectAll) {
-            categoryGroupSelectAll.addEventListener('change', () => {
-                const checked = categoryGroupSelectAll.checked;
-                document.querySelectorAll('.category-group-select').forEach((input) => {
+        if (minorBulkDeleteBtn) {
+            minorBulkDeleteBtn.addEventListener('click', () => this.bulkDeleteCategoryMinors());
+        }
+
+        if (majorSelectAll) {
+            majorSelectAll.addEventListener('change', () => {
+                const checked = majorSelectAll.checked;
+                document.querySelectorAll('.category-major-select').forEach((input) => {
+                    input.checked = checked;
+                    this.setRowSelected(input.closest('tr'), checked);
+                });
+            });
+        }
+
+        if (minorSelectAll) {
+            minorSelectAll.addEventListener('change', () => {
+                const checked = minorSelectAll.checked;
+                document.querySelectorAll('.category-minor-select').forEach((input) => {
                     input.checked = checked;
                     this.setRowSelected(input.closest('tr'), checked);
                 });
@@ -349,11 +408,160 @@ class BillProcessorApp {
         return data;
     }
 
+    async loadLedgers() {
+        try {
+            const data = await this.fetchJson('/api/ledgers');
+            this.ledgers = data.ledgers || [];
+            if (!this.currentLedgerId && this.ledgers.length > 0) {
+                this.currentLedgerId = String(this.ledgers[0].id);
+            }
+            this.populateLedgerSelect();
+        } catch (error) {
+            console.error('Failed to load ledgers:', error);
+            this.showMessage(`加载账本失败: ${error.message}`, 'error');
+        }
+    }
+
+    async createLedger() {
+        const nameInput = document.getElementById('ledgerName');
+        const budgetInput = document.getElementById('ledgerBudget');
+        const name = nameInput?.value.trim();
+        const budget = parseFloat(budgetInput?.value || '0') || 0;
+        if (!name) {
+            this.showMessage('请输入账本名称', 'error', 'configMessage');
+            return;
+        }
+        try {
+            const res = await this.fetchJson('/api/ledgers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, monthly_budget: budget })
+            });
+            if (res && res.ledger_id) {
+                this.currentLedgerId = String(res.ledger_id);
+            }
+            await this.loadLedgers();
+            this.showMessage('账本已创建', 'success', 'configMessage');
+        } catch (error) {
+            this.showMessage(`创建账本失败: ${error.message}`, 'error', 'configMessage');
+        }
+    }
+
+    async saveCurrentLedger() {
+        const ledger = this.getCurrentLedger();
+        if (!ledger) {
+            this.showMessage('请先选择账本', 'error', 'configMessage');
+            return;
+        }
+        const nameInput = document.getElementById('ledgerName');
+        const budgetInput = document.getElementById('ledgerBudget');
+        const name = nameInput?.value.trim();
+        const budget = parseFloat(budgetInput?.value || '0') || 0;
+        if (!name) {
+            this.showMessage('账本名称不能为空', 'error', 'configMessage');
+            return;
+        }
+        try {
+            await this.fetchJson(`/api/ledgers/${ledger.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, monthly_budget: budget })
+            });
+            await this.loadLedgers();
+            this.showMessage('账本已保存', 'success', 'configMessage');
+        } catch (error) {
+            this.showMessage(`保存账本失败: ${error.message}`, 'error', 'configMessage');
+        }
+    }
+
+    async deleteCurrentLedger() {
+        const ledger = this.getCurrentLedger();
+        if (!ledger) {
+            this.showMessage('请先选择账本', 'error', 'configMessage');
+            return;
+        }
+        const confirmed = await this.showConfirmModal(`确定要删除账本 "${ledger.name}" 吗？`);
+        if (!confirmed) return;
+        try {
+            await this.fetchJson(`/api/ledgers/${ledger.id}`, { method: 'DELETE' });
+            this.showMessage('账本已删除', 'success', 'configMessage');
+            await this.loadLedgers();
+            if (this.analyticsLoaded) {
+                this.refreshAnalytics({ resetPage: true });
+            }
+            await this.loadCategories();
+        } catch (error) {
+            this.showMessage(`删除账本失败: ${error.message}`, 'error', 'configMessage');
+        }
+    }
+
+    populateLedgerSelect() {
+        const select = document.getElementById('ledgerSelect');
+        if (!select) return;
+        const current = this.currentLedgerId;
+        select.innerHTML = '';
+        this.ledgers.forEach((ledger) => {
+            const option = document.createElement('option');
+            option.value = ledger.id;
+            option.textContent = ledger.name;
+            select.appendChild(option);
+        });
+        select.value = current || (this.ledgers[0]?.id || '');
+        this.currentLedgerId = select.value || this.currentLedgerId;
+        this.syncLedgerForm();
+
+        if (!select.dataset.bound) {
+            select.addEventListener('change', () => {
+                this.currentLedgerId = select.value;
+                this.syncLedgerForm();
+                this.loadCategories();
+                if (this.analyticsLoaded) {
+                    this.refreshAnalytics({ resetPage: true });
+                }
+            });
+            select.dataset.bound = '1';
+        }
+    }
+
+    setupLedgerEvents() {
+        const saveBtn = document.getElementById('saveLedgerBtn');
+        const newBtn = document.getElementById('newLedgerBtn');
+        const delBtn = document.getElementById('deleteLedgerBtn');
+
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => this.saveCurrentLedger());
+        }
+        if (newBtn) {
+            newBtn.addEventListener('click', () => this.createLedger());
+        }
+        if (delBtn) {
+            delBtn.addEventListener('click', () => this.deleteCurrentLedger());
+        }
+    }
+
+    getCurrentLedger() {
+        return (this.ledgers || []).find((l) => String(l.id) === String(this.currentLedgerId));
+    }
+
+    syncLedgerForm() {
+        const ledger = this.getCurrentLedger();
+        const nameInput = document.getElementById('ledgerName');
+        const budgetInput = document.getElementById('ledgerBudget');
+        if (!nameInput || !budgetInput) return;
+        if (ledger) {
+            nameInput.value = ledger.name || '';
+            budgetInput.value = ledger.monthly_budget ?? 0;
+        } else {
+            nameInput.value = '';
+            budgetInput.value = 0;
+        }
+    }
+
     async loadCategories() {
         try {
             const [groupsRes, rulesRes] = await Promise.all([
-                this.fetchJson('/api/config/category-groups').catch(() => ({ categories: [] })),
-                this.fetchJson('/api/config/categories').catch(() => ({ rules: [] }))
+                this.fetchJson(`/api/config/category-groups${this.buildQuery({})}`).catch(() => ({ categories: [] })),
+                this.fetchJson(`/api/config/categories${this.buildQuery({})}`).catch(() => ({ rules: [] }))
             ]);
 
             this.categoryGroups = groupsRes.categories || [];
@@ -361,9 +569,11 @@ class BillProcessorApp {
             this.updateCategoryListFromGroups();
             this.populateAnalyticsMajorOptions();
             this.populateAnalyticsMinorOptions();
+            this.populateConfigRuleCategoryOptions();
             this.addCategoriesFromRules();
             this.refreshCategoryOptions();
-            this.renderCategoryGroups();
+            this.renderCategoryMajors();
+            this.renderCategoryMinors();
             this.renderCategoryRules();
         } catch (error) {
             console.error('Failed to load categories:', error);
@@ -464,6 +674,9 @@ class BillProcessorApp {
             formData.append('files', file);
         });
         formData.append('bill_date', billDate);
+        if (this.currentLedgerId) {
+            formData.append('ledger_id', this.currentLedgerId);
+        }
 
         try {
             const response = await fetch('/api/upload', {
@@ -523,9 +736,29 @@ class BillProcessorApp {
         );
         categorySelects.forEach((select) => {
             const currentValue = select.value;
-            const placeholder = select.classList.contains('new-category-select') || select.id === 'newRuleCategory';
+            const placeholder = select.classList.contains('new-category-select');
             this.populateCategoryOptions(select, currentValue, placeholder);
         });
+    }
+
+    resolveCategoryFromText(text) {
+        const keyword = (text || '').trim();
+        if (!keyword) return '';
+        const rules = (this.categoryRules || []).slice().sort((a, b) => {
+            const pa = parseInt(a.priority ?? 0, 10);
+            const pb = parseInt(b.priority ?? 0, 10);
+            if (pb !== pa) return pb - pa;
+            const wa = a.is_weak ? 1 : 0;
+            const wb = b.is_weak ? 1 : 0;
+            return wa - wb;
+        });
+
+        for (const rule of rules) {
+            if (rule.keyword && keyword.includes(rule.keyword)) {
+                return rule.category || '';
+            }
+        }
+        return '';
     }
     displayResults() {
         const resultsBody = document.getElementById('resultsBody');
@@ -567,7 +800,16 @@ class BillProcessorApp {
             merchantInput.value = result.merchant || '';
             merchantInput.dataset.field = 'merchant';
             merchantInput.dataset.index = index;
-            merchantInput.addEventListener('input', (e) => this.handleFieldChange(e));
+            merchantInput.addEventListener('input', (e) => {
+                this.handleFieldChange(e);
+                if (categorySelect.dataset.manualCategory !== '1') {
+                    const matched = this.resolveCategoryFromText(merchantInput.value);
+                    if (matched) {
+                        categorySelect.value = matched;
+                        categorySelect.dataset.autoCategory = '1';
+                    }
+                }
+            });
             merchantCell.appendChild(merchantInput);
             
             const amountCell = document.createElement('td');
@@ -586,7 +828,10 @@ class BillProcessorApp {
             categorySelect.className = 'editable';
             categorySelect.dataset.field = 'category';
             categorySelect.dataset.index = index;
-            categorySelect.addEventListener('change', (e) => this.handleFieldChange(e));
+            categorySelect.addEventListener('change', (e) => {
+                categorySelect.dataset.manualCategory = '1';
+                this.handleFieldChange(e);
+            });
             this.populateCategoryOptions(categorySelect, result.category);
             categoryCell.appendChild(categorySelect);
             
@@ -709,7 +954,16 @@ class BillProcessorApp {
         merchantInput.className = 'editable new-bill-input';
         merchantInput.placeholder = '商户名称';
         merchantInput.dataset.field = 'merchant';
-        merchantInput.addEventListener('input', () => merchantInput.classList.remove('invalid'));
+        merchantInput.addEventListener('input', () => {
+            merchantInput.classList.remove('invalid');
+            if (categorySelect.dataset.manualCategory !== '1') {
+                const matched = this.resolveCategoryFromText(merchantInput.value);
+                if (matched) {
+                    categorySelect.value = matched;
+                    categorySelect.dataset.autoCategory = '1';
+                }
+            }
+        });
         merchantCell.appendChild(merchantInput);
         
         const amountCell = document.createElement('td');
@@ -728,6 +982,9 @@ class BillProcessorApp {
         categorySelect.dataset.field = 'category';
         this.populateCategoryOptions(categorySelect, '', true);
         categorySelect.addEventListener('change', () => categorySelect.classList.remove('invalid'));
+        categorySelect.addEventListener('change', () => {
+            categorySelect.dataset.manualCategory = '1';
+        });
         categoryCell.appendChild(categorySelect);
         
         const dateCell = document.createElement('td');
@@ -839,8 +1096,10 @@ class BillProcessorApp {
                         category: result.category,
                         filename: result.filename,
                         bill_date: result.bill_date || document.getElementById('billDate')?.value,
-                        is_manual: result.is_manual || false
-                    }))
+                        is_manual: result.is_manual || false,
+                        ledger_id: this.currentLedgerId || ''
+                    })),
+                    ledger_id: this.currentLedgerId || ''
                 })
             });
 
@@ -1143,6 +1402,9 @@ class BillProcessorApp {
                 search.append(key, value);
             }
         });
+        if (this.currentLedgerId && !search.has('ledger_id')) {
+            search.append('ledger_id', this.currentLedgerId);
+        }
         const query = search.toString();
         return query ? `?${query}` : '';
     }
@@ -1189,6 +1451,8 @@ class BillProcessorApp {
         const countEl = document.getElementById('summaryCount');
         const rangeEl = document.getElementById('summaryRange');
         const countMetaEl = document.getElementById('summaryCountMeta');
+        const dailyAvgEl = document.getElementById('summaryDailyAvg');
+        const dailyAvgMetaEl = document.getElementById('summaryDailyAvgMeta');
 
         if (totalEl) totalEl.textContent = this.formatCurrency(summary.total_amount);
         if (countEl) countEl.textContent = summary.bill_count || 0;
@@ -1204,6 +1468,15 @@ class BillProcessorApp {
         if (countMetaEl) {
             const categoriesCount = summary.categories ? Object.keys(summary.categories).length : 0;
             countMetaEl.textContent = `${categoriesCount} 个分类`;
+        }
+
+        if (dailyAvgEl) {
+            const avg = summary.daily_avg ?? 0;
+            dailyAvgEl.textContent = this.formatCurrency(avg);
+        }
+        if (dailyAvgMetaEl) {
+            const dayCount = summary.day_count ?? 0;
+            dailyAvgMetaEl.textContent = dayCount ? `${dayCount} 天` : '';
         }
     }
 
@@ -1489,6 +1762,123 @@ class BillProcessorApp {
         this.categories = (this.categoryGroups || [])
             .map((group) => group.full_name)
             .filter((name) => name);
+
+        if (this.selectedCategoryMajor) {
+            const hasMajor = (this.categoryGroups || []).some((group) => group.major === this.selectedCategoryMajor);
+            if (!hasMajor) {
+                this.selectedCategoryMajor = '';
+            }
+        }
+    }
+
+    populateConfigRuleCategoryOptions() {
+        const majorSelect = document.getElementById('newRuleMajor');
+        const minorSelect = document.getElementById('newRuleMinor');
+        if (!majorSelect || !minorSelect) return;
+
+        const currentMajor = majorSelect.value;
+        const majors = Array.from(new Set(
+            (this.categoryGroups || []).map((group) => group.major).filter((name) => name)
+        )).sort((a, b) => a.localeCompare(b));
+
+        majorSelect.innerHTML = '';
+        const majorPlaceholder = document.createElement('option');
+        majorPlaceholder.value = '';
+        majorPlaceholder.textContent = '选择大类';
+        majorSelect.appendChild(majorPlaceholder);
+
+        majors.forEach((major) => {
+            const option = document.createElement('option');
+            option.value = major;
+            option.textContent = major;
+            majorSelect.appendChild(option);
+        });
+
+        if (majors.includes(currentMajor)) {
+            majorSelect.value = currentMajor;
+        } else {
+            majorSelect.value = '';
+        }
+
+        this.populateConfigRuleMinorOptions(majorSelect.value);
+
+        if (!majorSelect.dataset.bound) {
+            majorSelect.addEventListener('change', () => {
+                this.populateConfigRuleMinorOptions(majorSelect.value);
+            });
+            majorSelect.dataset.bound = '1';
+        }
+    }
+
+    populateConfigRuleMinorOptions(selectedMajor) {
+        const minorSelect = document.getElementById('newRuleMinor');
+        if (!minorSelect) return;
+
+        const minors = Array.from(new Set(
+            (this.categoryGroups || [])
+                .filter((group) => group.major === selectedMajor)
+                .map((group) => group.minor)
+                .filter((name) => name)
+        )).sort((a, b) => a.localeCompare(b));
+
+        minorSelect.innerHTML = '';
+        const minorPlaceholder = document.createElement('option');
+        minorPlaceholder.value = '';
+        minorPlaceholder.textContent = minors.length ? '选择小类' : '无小类';
+        minorSelect.appendChild(minorPlaceholder);
+
+        minors.forEach((minor) => {
+            const option = document.createElement('option');
+            option.value = minor;
+            option.textContent = minor;
+            minorSelect.appendChild(option);
+        });
+
+        minorSelect.value = '';
+        minorSelect.disabled = minors.length === 0;
+    }
+
+    parseCategoryParts(category) {
+        const text = (category || '').trim();
+        if (!text) {
+            return { major: '', minor: '' };
+        }
+        const parts = text.split('/');
+        if (parts.length >= 2) {
+            return { major: parts[0], minor: parts.slice(1).join('/') };
+        }
+        return { major: text, minor: '' };
+    }
+
+    populateRuleMinorOptions(majorSelect, minorSelect, selectedMinor = '') {
+        if (!majorSelect || !minorSelect) return;
+        const major = majorSelect.value;
+        const minors = Array.from(new Set(
+            (this.categoryGroups || [])
+                .filter((group) => group.major === major)
+                .map((group) => group.minor)
+                .filter((name) => name)
+        )).sort((a, b) => a.localeCompare(b));
+
+        minorSelect.innerHTML = '';
+        const placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = minors.length ? '选择小类' : '无小类';
+        minorSelect.appendChild(placeholder);
+
+        minors.forEach((minor) => {
+            const option = document.createElement('option');
+            option.value = minor;
+            option.textContent = minor;
+            minorSelect.appendChild(option);
+        });
+
+        if (minors.includes(selectedMinor)) {
+            minorSelect.value = selectedMinor;
+        } else {
+            minorSelect.value = '';
+        }
+        minorSelect.disabled = minors.length === 0;
     }
 
     populateAnalyticsMajorOptions() {
@@ -1562,13 +1952,15 @@ class BillProcessorApp {
 
     async loadCategoryGroups(showToast = false) {
         try {
-            const data = await this.fetchJson('/api/config/category-groups');
+            const data = await this.fetchJson(`/api/config/category-groups${this.buildQuery({})}`);
             this.categoryGroups = data.categories || [];
             this.updateCategoryListFromGroups();
             this.populateAnalyticsMajorOptions();
             this.populateAnalyticsMinorOptions();
+            this.populateConfigRuleCategoryOptions();
             this.addCategoriesFromRules();
-            this.renderCategoryGroups();
+            this.renderCategoryMajors();
+            this.renderCategoryMinors();
             this.refreshCategoryOptions();
             if (showToast) {
                 this.showMessage('分类已刷新', 'success', 'configMessage');
@@ -1580,7 +1972,7 @@ class BillProcessorApp {
 
     async loadCategoryRules(showToast = false) {
         try {
-            const data = await this.fetchJson('/api/config/categories');
+            const data = await this.fetchJson(`/api/config/categories${this.buildQuery({})}`);
             this.categoryRules = data.rules || [];
             this.updateCategoryListFromGroups();
             this.addCategoriesFromRules();
@@ -1594,27 +1986,149 @@ class BillProcessorApp {
         }
     }
 
-    renderCategoryGroups() {
-        const body = document.getElementById('categoryGroupTableBody');
+    getCategoryMajorEntries() {
+        const map = new Map();
+        (this.categoryGroups || []).forEach((group) => {
+            const major = group.major || '';
+            if (!major) return;
+            const entry = map.get(major) || { major, ids: [], minors: [] };
+            entry.ids.push(group.id);
+            if (group.minor) {
+                entry.minors.push(group.minor);
+            }
+            map.set(major, entry);
+        });
+        return Array.from(map.values()).sort((a, b) => a.major.localeCompare(b.major));
+    }
+
+    setSelectedMajor(major) {
+        this.selectedCategoryMajor = major || '';
+        const selectedLabel = document.getElementById('selectedMajorName');
+        if (selectedLabel) {
+            selectedLabel.textContent = this.selectedCategoryMajor || '-';
+        }
+        this.renderCategoryMajors();
+        this.renderCategoryMinors();
+    }
+
+    renderCategoryMajors() {
+        const body = document.getElementById('majorTableBody');
         if (!body) return;
 
         body.innerHTML = '';
-        const selectAll = document.getElementById('categoryGroupSelectAll');
+        const selectAll = document.getElementById('majorSelectAll');
         if (selectAll) {
             selectAll.checked = false;
         }
 
-        if (!this.categoryGroups || this.categoryGroups.length === 0) {
+        const majors = this.getCategoryMajorEntries();
+        if (majors.length === 0) {
             const row = document.createElement('tr');
             const cell = document.createElement('td');
-            cell.colSpan = 4;
+            cell.colSpan = 3;
             cell.textContent = '暂无分类';
             row.appendChild(cell);
             body.appendChild(row);
             return;
         }
 
-        this.categoryGroups.forEach((group) => {
+        if (!this.selectedCategoryMajor) {
+            this.selectedCategoryMajor = majors[0].major;
+            const selectedLabel = document.getElementById('selectedMajorName');
+            if (selectedLabel) {
+                selectedLabel.textContent = this.selectedCategoryMajor || '-';
+            }
+        }
+
+        majors.forEach((entry) => {
+            const row = document.createElement('tr');
+            row.dataset.major = entry.major;
+
+            const selectCell = document.createElement('td');
+            const selectInput = document.createElement('input');
+            selectInput.type = 'checkbox';
+            selectInput.className = 'category-major-select';
+            selectInput.value = entry.major;
+            selectInput.addEventListener('change', () => {
+                this.setRowSelected(row, selectInput.checked);
+                this.updateMajorSelectAllState();
+            });
+            selectCell.appendChild(selectInput);
+
+            const majorCell = document.createElement('td');
+            const majorInput = document.createElement('input');
+            majorInput.type = 'text';
+            majorInput.value = entry.major;
+            majorInput.className = 'editable';
+            majorInput.addEventListener('blur', () => {
+                this.updateCategoryMajorName(entry.major, majorInput.value.trim());
+            });
+            majorCell.appendChild(majorInput);
+
+            const countCell = document.createElement('td');
+            countCell.textContent = String(entry.minors.length);
+
+            row.appendChild(selectCell);
+            row.appendChild(majorCell);
+            row.appendChild(countCell);
+            if (entry.major === this.selectedCategoryMajor) {
+                row.classList.add('selected-row');
+            }
+
+            body.appendChild(row);
+
+            row.addEventListener('click', (event) => {
+                if (event.target.closest('input, select, button, label')) {
+                    return;
+                }
+                this.setSelectedMajor(entry.major);
+            });
+        });
+
+        this.updateMajorSelectAllState();
+    }
+
+    renderCategoryMinors() {
+        const body = document.getElementById('minorTableBody');
+        if (!body) return;
+
+        body.innerHTML = '';
+        const selectAll = document.getElementById('minorSelectAll');
+        if (selectAll) {
+            selectAll.checked = false;
+        }
+        const minorInput = document.getElementById('newCategoryMinor');
+        const minorSubmit = document.querySelector('#newMinorForm button[type="submit"]');
+
+        if (!this.selectedCategoryMajor) {
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = 3;
+            cell.textContent = '请选择大类后查看小类';
+            row.appendChild(cell);
+            body.appendChild(row);
+            if (minorInput) minorInput.disabled = true;
+            if (minorSubmit) minorSubmit.disabled = true;
+            return;
+        }
+        if (minorInput) minorInput.disabled = false;
+        if (minorSubmit) minorSubmit.disabled = false;
+
+        const minors = (this.categoryGroups || []).filter(
+            (group) => group.major === this.selectedCategoryMajor
+        );
+
+        if (minors.length === 0) {
+            const row = document.createElement('tr');
+            const cell = document.createElement('td');
+            cell.colSpan = 3;
+            cell.textContent = '暂无小类';
+            row.appendChild(cell);
+            body.appendChild(row);
+            return;
+        }
+
+        minors.forEach((group) => {
             const row = document.createElement('tr');
             row.dataset.categoryId = group.id;
             row.dataset.fullName = group.full_name;
@@ -1622,78 +2136,40 @@ class BillProcessorApp {
             const selectCell = document.createElement('td');
             const selectInput = document.createElement('input');
             selectInput.type = 'checkbox';
-            selectInput.className = 'category-group-select';
+            selectInput.className = 'category-minor-select';
             selectInput.value = group.id;
             selectInput.addEventListener('change', () => {
                 this.setRowSelected(row, selectInput.checked);
-                this.updateCategoryGroupSelectAllState();
+                this.updateMinorSelectAllState();
             });
             selectCell.appendChild(selectInput);
-
-            const majorCell = document.createElement('td');
-            const majorInput = document.createElement('input');
-            majorInput.type = 'text';
-            majorInput.value = group.major || '';
-            majorInput.className = 'editable';
-            majorInput.dataset.field = 'major';
-            majorInput.addEventListener('blur', () => this.autoSaveCategoryGroupRow(row));
-            majorCell.appendChild(majorInput);
 
             const minorCell = document.createElement('td');
             const minorInput = document.createElement('input');
             minorInput.type = 'text';
             minorInput.value = group.minor || '';
             minorInput.className = 'editable';
-            minorInput.dataset.field = 'minor';
-            minorInput.addEventListener('blur', () => this.autoSaveCategoryGroupRow(row));
+            minorInput.addEventListener('blur', () => {
+                this.updateCategoryGroupById(group.id, this.selectedCategoryMajor, minorInput.value.trim());
+            });
             minorCell.appendChild(minorInput);
 
             const nameCell = document.createElement('td');
             nameCell.textContent = group.full_name || '';
+
             row.appendChild(selectCell);
-            row.appendChild(majorCell);
             row.appendChild(minorCell);
             row.appendChild(nameCell);
-
             body.appendChild(row);
-
-            row.dataset.snapshot = this.getCategoryGroupSnapshot(row);
-            row.addEventListener('click', (event) => {
-                if (event.target.closest('input, select, button, label')) {
-                    return;
-                }
-                selectInput.checked = !selectInput.checked;
-                this.setRowSelected(row, selectInput.checked);
-                this.updateCategoryGroupSelectAllState();
-            });
         });
 
-        this.updateCategoryGroupSelectAllState();
+        this.updateMinorSelectAllState();
     }
 
-    getCategoryGroupSnapshot(row) {
-        const major = row.querySelector('input[data-field="major"]')?.value.trim() || '';
-        const minor = row.querySelector('input[data-field="minor"]')?.value.trim() || '';
-        return JSON.stringify({ major, minor });
-    }
-
-    autoSaveCategoryGroupRow(row) {
-        if (!row) return;
-        const nextSnapshot = this.getCategoryGroupSnapshot(row);
-        if (row.dataset.snapshot === nextSnapshot) {
-            return;
-        }
-        this.updateCategoryGroup(row, true).then((updated) => {
-            if (updated) {
-                row.dataset.snapshot = nextSnapshot;
-            }
-        });
-    }
-
-    updateCategoryGroupSelectAllState() {
-        const selectAll = document.getElementById('categoryGroupSelectAll');
+    updateMajorSelectAllState() {
+        const selectAll = document.getElementById('majorSelectAll');
         if (!selectAll) return;
-        const checkboxes = Array.from(document.querySelectorAll('.category-group-select'));
+        const checkboxes = Array.from(document.querySelectorAll('.category-major-select'));
         if (checkboxes.length === 0) {
             selectAll.checked = false;
             return;
@@ -1701,17 +2177,55 @@ class BillProcessorApp {
         selectAll.checked = checkboxes.every((input) => input.checked);
     }
 
-    async bulkDeleteCategoryGroups() {
-        const selected = Array.from(document.querySelectorAll('.category-group-select:checked'))
+    updateMinorSelectAllState() {
+        const selectAll = document.getElementById('minorSelectAll');
+        if (!selectAll) return;
+        const checkboxes = Array.from(document.querySelectorAll('.category-minor-select'));
+        if (checkboxes.length === 0) {
+            selectAll.checked = false;
+            return;
+        }
+        selectAll.checked = checkboxes.every((input) => input.checked);
+    }
+
+    async bulkDeleteCategoryMajors() {
+        const selected = Array.from(document.querySelectorAll('.category-major-select:checked'))
+            .map((input) => input.value)
+            .filter((name) => name);
+
+        if (selected.length === 0) {
+            this.showMessage('请先选择要删除的大类', 'error', 'configMessage');
+            return;
+        }
+
+        const targets = (this.categoryGroups || []).filter((group) => selected.includes(group.major));
+        const confirmed = await this.showConfirmModal(`确定要删除选中的 ${selected.length} 个大类吗？`);
+        if (!confirmed) {
+            return;
+        }
+
+        try {
+            for (const group of targets) {
+                await this.fetchJson(`/api/config/category-groups/${group.id}`, { method: 'DELETE' });
+            }
+            this.showMessage('大类已批量删除', 'success', 'configMessage');
+            this.loadCategoryGroups(false);
+        } catch (error) {
+            this.showMessage(`批量删除失败: ${error.message}`, 'error', 'configMessage');
+        }
+    }
+
+    async bulkDeleteCategoryMinors() {
+        const selected = Array.from(document.querySelectorAll('.category-minor-select:checked'))
             .map((input) => parseInt(input.value, 10))
             .filter((id) => !Number.isNaN(id));
 
         if (selected.length === 0) {
-            this.showMessage('请先选择要删除的分类', 'error', 'configMessage');
+            this.showMessage('请先选择要删除的小类', 'error', 'configMessage');
             return;
         }
 
-        const confirmed = await this.showConfirmModal(`确定要删除选中的 ${selected.length} 个分类吗？`);
+        const confirmed = await this.showConfirmModal(`确定要删除选中的 ${selected.length} 个小类吗？`);
         if (!confirmed) {
             return;
         }
@@ -1720,18 +2234,78 @@ class BillProcessorApp {
             for (const categoryId of selected) {
                 await this.fetchJson(`/api/config/category-groups/${categoryId}`, { method: 'DELETE' });
             }
-            this.showMessage('分类已批量删除', 'success', 'configMessage');
+            this.showMessage('小类已批量删除', 'success', 'configMessage');
             this.loadCategoryGroups(false);
         } catch (error) {
             this.showMessage(`批量删除失败: ${error.message}`, 'error', 'configMessage');
         }
     }
 
-    async createCategoryGroup() {
+    async updateCategoryMajorName(oldMajor, newMajor) {
+        const nextMajor = (newMajor || '').trim();
+        if (!nextMajor) {
+            this.showMessage('大类不能为空', 'error', 'configMessage');
+            this.renderCategoryMajors();
+            return;
+        }
+        if (oldMajor === nextMajor) {
+            return;
+        }
+        const exists = (this.categoryGroups || []).some((group) => group.major === nextMajor);
+        if (exists) {
+            this.showMessage('该大类已存在', 'error', 'configMessage');
+            this.renderCategoryMajors();
+            return;
+        }
+
+        const targets = (this.categoryGroups || []).filter((group) => group.major === oldMajor);
+        try {
+            for (const group of targets) {
+                await this.fetchJson(`/api/config/category-groups/${group.id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        major: nextMajor,
+                        minor: group.minor
+                    })
+                });
+            }
+            this.showMessage('大类已更新', 'success', 'configMessage');
+            this.selectedCategoryMajor = nextMajor;
+            this.loadCategoryGroups(false);
+        } catch (error) {
+            this.showMessage(`更新失败: ${error.message}`, 'error', 'configMessage');
+            this.renderCategoryMajors();
+        }
+    }
+
+    async updateCategoryGroupById(categoryId, major, minor) {
+        if (!major) {
+            this.showMessage('大类不能为空', 'error', 'configMessage');
+            return;
+        }
+        try {
+            await this.fetchJson(`/api/config/category-groups/${categoryId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    major,
+                    minor
+                })
+            });
+            this.showMessage('小类已更新', 'success', 'configMessage');
+            this.loadCategoryGroups(false);
+        } catch (error) {
+            this.showMessage(`更新失败: ${error.message}`, 'error', 'configMessage');
+        }
+    }
+
+    async createCategoryMajor() {
         const majorInput = document.getElementById('newCategoryMajor');
-        const minorInput = document.getElementById('newCategoryMinor');
+        const scopeSelect = document.getElementById('newCategoryScope');
         const major = majorInput?.value.trim();
-        const minor = minorInput?.value.trim();
+        const scope = scopeSelect?.value || 'current';
+        const ledgerId = scope === 'global' ? '' : this.currentLedgerId;
 
         if (!major) {
             this.showMessage('请输入大类名称', 'error', 'configMessage');
@@ -1744,7 +2318,8 @@ class BillProcessorApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     major,
-                    minor
+                    minor: '',
+                    ledger_id: ledgerId
                 })
             });
 
@@ -1753,13 +2328,62 @@ class BillProcessorApp {
                 this.categoryGroups.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
                 this.updateCategoryListFromGroups();
                 this.addCategoriesFromRules();
-                this.renderCategoryGroups();
+                this.renderCategoryMajors();
+                this.renderCategoryMinors();
                 this.refreshCategoryOptions();
+                this.populateConfigRuleCategoryOptions();
             }
 
-            this.showMessage('分类新增成功', 'success', 'configMessage');
+            this.showMessage('大类新增成功', 'success', 'configMessage');
             if (majorInput) majorInput.value = '';
+            if (scopeSelect) scopeSelect.value = 'current';
+        } catch (error) {
+            this.showMessage(`新增分类失败: ${error.message}`, 'error', 'configMessage');
+        }
+    }
+
+    async createCategoryMinor() {
+        const minorInput = document.getElementById('newCategoryMinor');
+        const scopeSelect = document.getElementById('newMinorScope');
+        const minor = minorInput?.value.trim();
+        const major = this.selectedCategoryMajor;
+        const scope = scopeSelect?.value || 'current';
+        const ledgerId = scope === 'global' ? '' : this.currentLedgerId;
+
+        if (!major) {
+            this.showMessage('请先选择大类', 'error', 'configMessage');
+            return;
+        }
+        if (!minor) {
+            this.showMessage('请输入小类名称', 'error', 'configMessage');
+            return;
+        }
+
+        try {
+            const data = await this.fetchJson('/api/config/category-groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    major,
+                    minor,
+                    ledger_id: ledgerId
+                })
+            });
+
+            if (data.category) {
+                this.categoryGroups.push(data.category);
+                this.categoryGroups.sort((a, b) => (a.full_name || '').localeCompare(b.full_name || ''));
+                this.updateCategoryListFromGroups();
+                this.addCategoriesFromRules();
+                this.renderCategoryMajors();
+                this.renderCategoryMinors();
+                this.refreshCategoryOptions();
+                this.populateConfigRuleCategoryOptions();
+            }
+
+            this.showMessage('小类新增成功', 'success', 'configMessage');
             if (minorInput) minorInput.value = '';
+            if (scopeSelect) scopeSelect.value = 'current';
         } catch (error) {
             this.showMessage(`新增分类失败: ${error.message}`, 'error', 'configMessage');
         }
@@ -1802,9 +2426,11 @@ class BillProcessorApp {
                 }));
                 this.updateCategoryListFromGroups();
                 this.addCategoriesFromRules();
-                this.renderCategoryGroups();
+                this.renderCategoryMajors();
+                this.renderCategoryMinors();
                 this.renderCategoryRules();
                 this.refreshCategoryOptions();
+                this.populateConfigRuleCategoryOptions();
             }
 
             if (!silent) {
@@ -1826,8 +2452,10 @@ class BillProcessorApp {
             this.categoryGroups = this.categoryGroups.filter((group) => group.id !== categoryId);
             this.updateCategoryListFromGroups();
             this.addCategoriesFromRules();
-            this.renderCategoryGroups();
+            this.renderCategoryMajors();
+            this.renderCategoryMinors();
             this.refreshCategoryOptions();
+            this.populateConfigRuleCategoryOptions();
             this.showMessage('分类已删除', 'success', 'configMessage');
         } catch (error) {
             this.showMessage(`删除分类失败: ${error.message}`, 'error', 'configMessage');
@@ -1854,7 +2482,13 @@ class BillProcessorApp {
             return;
         }
 
-        this.categoryRules.forEach((rule) => {
+        const sortedRules = (this.categoryRules || []).slice().sort((a, b) => {
+            const ca = (a.category || '').localeCompare(b.category || '');
+            if (ca !== 0) return ca;
+            return (a.keyword || '').localeCompare(b.keyword || '');
+        });
+
+        sortedRules.forEach((rule) => {
             const row = document.createElement('tr');
             row.dataset.ruleId = rule.id;
 
@@ -1879,12 +2513,47 @@ class BillProcessorApp {
             keywordCell.appendChild(keywordInput);
 
             const categoryCell = document.createElement('td');
-            const categorySelect = document.createElement('select');
-            categorySelect.className = 'editable category-select';
-            categorySelect.dataset.field = 'category';
-            this.populateCategoryOptions(categorySelect, rule.category);
-            categorySelect.addEventListener('change', () => this.autoSaveCategoryRuleRow(row));
-            categoryCell.appendChild(categorySelect);
+            const categoryWrapper = document.createElement('div');
+            categoryWrapper.className = 'rule-category-selects';
+
+            const categoryParts = this.parseCategoryParts(rule.category);
+            const majorSelect = document.createElement('select');
+            majorSelect.className = 'editable category-major-select';
+            majorSelect.dataset.field = 'category_major';
+
+            const majors = Array.from(new Set(
+                (this.categoryGroups || []).map((group) => group.major).filter((name) => name)
+            )).sort((a, b) => a.localeCompare(b));
+
+            majorSelect.innerHTML = '';
+            const majorPlaceholder = document.createElement('option');
+            majorPlaceholder.value = '';
+            majorPlaceholder.textContent = '选择大类';
+            majorSelect.appendChild(majorPlaceholder);
+            majors.forEach((major) => {
+                const option = document.createElement('option');
+                option.value = major;
+                option.textContent = major;
+                majorSelect.appendChild(option);
+            });
+            majorSelect.value = majors.includes(categoryParts.major) ? categoryParts.major : '';
+
+            const minorSelect = document.createElement('select');
+            minorSelect.className = 'editable category-minor-select';
+            minorSelect.dataset.field = 'category_minor';
+            this.populateRuleMinorOptions(majorSelect, minorSelect, categoryParts.minor);
+
+            majorSelect.addEventListener('change', () => {
+                this.populateRuleMinorOptions(majorSelect, minorSelect, '');
+                if (minorSelect.disabled) {
+                    this.autoSaveCategoryRuleRow(row);
+                }
+            });
+            minorSelect.addEventListener('change', () => this.autoSaveCategoryRuleRow(row));
+
+            categoryWrapper.appendChild(majorSelect);
+            categoryWrapper.appendChild(minorSelect);
+            categoryCell.appendChild(categoryWrapper);
 
             const priorityCell = document.createElement('td');
             const priorityInput = document.createElement('input');
@@ -1927,7 +2596,9 @@ class BillProcessorApp {
 
     getCategoryRuleSnapshot(row) {
         const keyword = row.querySelector('input[data-field="keyword"]')?.value.trim() || '';
-        const category = row.querySelector('select[data-field="category"]')?.value.trim() || '';
+        const major = row.querySelector('select[data-field="category_major"]')?.value.trim() || '';
+        const minor = row.querySelector('select[data-field="category_minor"]')?.value.trim() || '';
+        const category = major ? (minor ? `${major}/${minor}` : major) : '';
         const priority = row.querySelector('input[data-field="priority"]')?.value || '';
         const isWeak = row.querySelector('input[data-field="is_weak"]')?.checked ? '1' : '0';
         return JSON.stringify({ keyword, category, priority, isWeak });
@@ -1985,17 +2656,33 @@ class BillProcessorApp {
 
     async createCategoryRule() {
         const keywordInput = document.getElementById('newRuleKeyword');
-        const categorySelect = document.getElementById('newRuleCategory');
+        const majorSelect = document.getElementById('newRuleMajor');
+        const minorSelect = document.getElementById('newRuleMinor');
+        const scopeSelect = document.getElementById('newRuleScope');
         const priorityInput = document.getElementById('newRulePriority');
         const weakInput = document.getElementById('newRuleWeak');
 
         const keyword = keywordInput?.value.trim();
-        const category = categorySelect?.value.trim();
+        const major = majorSelect?.value.trim();
+        const minor = minorSelect?.value.trim();
+        const scope = scopeSelect?.value || 'current';
+        const minors = Array.from(new Set(
+            (this.categoryGroups || [])
+                .filter((group) => group.major === major)
+                .map((group) => group.minor)
+                .filter((name) => name)
+        ));
+        const category = major ? (minor ? `${major}/${minor}` : major) : '';
         const priority = priorityInput?.value || 1;
         const isWeak = weakInput?.checked || false;
+        const ledgerId = scope === 'global' ? '' : this.currentLedgerId;
 
         if (!keyword || !category) {
             this.showMessage('请输入关键词和分类', 'error', 'configMessage');
+            return;
+        }
+        if (major && minors.length > 0 && !minor) {
+            this.showMessage('请选择对应的小类', 'error', 'configMessage');
             return;
         }
 
@@ -2007,7 +2694,8 @@ class BillProcessorApp {
                     keyword,
                     category,
                     priority: parseInt(priority, 10) || 1,
-                    is_weak: isWeak
+                    is_weak: isWeak,
+                    ledger_id: ledgerId
                 })
             });
 
@@ -2020,7 +2708,9 @@ class BillProcessorApp {
 
             this.showMessage('新增规则成功', 'success', 'configMessage');
             if (keywordInput) keywordInput.value = '';
-            if (categorySelect) categorySelect.value = '';
+            if (majorSelect) majorSelect.value = '';
+            if (minorSelect) minorSelect.value = '';
+            if (scopeSelect) scopeSelect.value = 'current';
             if (priorityInput) priorityInput.value = '1';
             if (weakInput) weakInput.checked = false;
         } catch (error) {
@@ -2033,12 +2723,24 @@ class BillProcessorApp {
         if (Number.isNaN(ruleId)) return;
 
         const keyword = row.querySelector('input[data-field="keyword"]')?.value.trim();
-        const category = row.querySelector('select[data-field="category"]')?.value.trim();
+        const major = row.querySelector('select[data-field="category_major"]')?.value.trim();
+        const minor = row.querySelector('select[data-field="category_minor"]')?.value.trim();
+        const minors = Array.from(new Set(
+            (this.categoryGroups || [])
+                .filter((group) => group.major === major)
+                .map((group) => group.minor)
+                .filter((name) => name)
+        ));
+        const category = major ? (minor ? `${major}/${minor}` : major) : '';
         const priorityValue = row.querySelector('input[data-field="priority"]')?.value;
         const isWeak = row.querySelector('input[data-field="is_weak"]')?.checked || false;
 
         if (!keyword || !category) {
             this.showMessage('关键词和分类不能为空', 'error', 'configMessage');
+            return;
+        }
+        if (major && minors.length > 0 && !minor) {
+            this.showMessage('请选择对应的小类', 'error', 'configMessage');
             return;
         }
 

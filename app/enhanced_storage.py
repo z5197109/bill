@@ -12,6 +12,7 @@ import config
 class EnhancedBill:
     """Enhanced bill data model"""
     id: Optional[int] = None
+    ledger_id: Optional[int] = None
     filename: str = ""
     merchant: str = ""
     amount: float = 0.0
@@ -39,6 +40,7 @@ class CategoryRule:
     id: Optional[int] = None
     keyword: str = ""
     category: str = ""
+    ledger_id: Optional[int] = None
     priority: int = 1
     is_weak: bool = False
     created_at: str = ""
@@ -49,12 +51,18 @@ class CategoryRule:
             self.created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not self.updated_at:
             self.updated_at = self.created_at
+        if self.ledger_id is None:
+            try:
+                self.ledger_id = EnhancedDatabaseManager().get_default_ledger_id()
+            except Exception:
+                self.ledger_id = None
 
 
 @dataclass
 class CategoryGroup:
     """Category group data model"""
     id: Optional[int] = None
+    ledger_id: Optional[int] = None
     major: str = ""
     minor: str = ""
     created_at: str = ""
@@ -78,6 +86,17 @@ class EnhancedDatabaseManager:
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
         
+        # Ledgers table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ledgers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                monthly_budget REAL DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        ''')
+
         # Check if we need to migrate existing bills table
         cursor.execute("PRAGMA table_info(bills)")
         columns = [column[1] for column in cursor.fetchall()]
@@ -99,7 +118,8 @@ class EnhancedDatabaseManager:
                 bill_date TEXT,
                 created_at TEXT,
                 updated_at TEXT,
-                is_manual INTEGER DEFAULT 0
+                is_manual INTEGER DEFAULT 0,
+                ledger_id INTEGER
             )
         ''')
         
@@ -112,7 +132,8 @@ class EnhancedDatabaseManager:
                 priority INTEGER DEFAULT 1,
                 is_weak INTEGER DEFAULT 0,
                 created_at TEXT,
-                updated_at TEXT
+                updated_at TEXT,
+                ledger_id INTEGER
             )
         ''')
 
@@ -127,6 +148,25 @@ class EnhancedDatabaseManager:
                 UNIQUE(major, minor)
             )
         ''')
+
+        # Add ledger_id columns if missing
+        for table in ['bills', 'category_rules', 'categories']:
+            cursor.execute(f"PRAGMA table_info({table})")
+            cols = [c[1] for c in cursor.fetchall()]
+            if 'ledger_id' not in cols:
+                try:
+                    cursor.execute(f'ALTER TABLE {table} ADD COLUMN ledger_id INTEGER')
+                except Exception:
+                    pass
+
+        # Rebuild tables to add unique constraints with ledger_id (if not yet migrated)
+        cursor.execute('PRAGMA user_version')
+        user_version = cursor.fetchone()[0] or 0
+        if user_version < 1:
+            self._migrate_categories_with_ledger(cursor)
+            self._migrate_category_rules_with_ledger(cursor)
+            self._migrate_bills_with_ledger(cursor)
+            cursor.execute('PRAGMA user_version = 1')
         
         # Create indexes for performance
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bills_bill_date ON bills(bill_date)')
@@ -146,9 +186,143 @@ class EnhancedDatabaseManager:
             self._init_categories_from_rules_and_config(cursor)
         else:
             self._sync_categories_from_rules(cursor)
+
+        # Ensure default ledger exists
+        cursor.execute('SELECT COUNT(*) FROM ledgers')
+        if cursor.fetchone()[0] == 0:
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute('INSERT INTO ledgers (name, monthly_budget, created_at, updated_at) VALUES (?, ?, ?, ?)',
+                           ('默认账本', 0, now, now))
         
         conn.commit()
         conn.close()
+
+    def _migrate_categories_with_ledger(self, cursor):
+        cursor.execute("PRAGMA table_info(categories)")
+        cols = cursor.fetchall()
+        has_ledger = any(c[1] == 'ledger_id' for c in cols)
+        cursor.execute("PRAGMA index_list(categories)")
+        idxs = cursor.fetchall()
+        has_ledger_unique = any('ledger' in (idx[1] or '') for idx in idxs)
+        if has_ledger and has_ledger_unique:
+            return
+
+        cursor.execute("SELECT id, major, minor, created_at, updated_at, ledger_id FROM categories")
+        rows = cursor.fetchall()
+        cursor.execute("ALTER TABLE categories RENAME TO categories_old")
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                major TEXT NOT NULL,
+                minor TEXT NOT NULL,
+                created_at TEXT,
+                updated_at TEXT,
+                ledger_id INTEGER,
+                UNIQUE(major, minor, ledger_id)
+            )
+        ''')
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for row in rows:
+            cursor.execute('''
+                INSERT OR IGNORE INTO categories (id, major, minor, created_at, updated_at, ledger_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (row[0], row[1], row[2], row[3] or now, row[4] or now, row[5] if len(row) > 5 else None))
+        cursor.execute("DROP TABLE IF EXISTS categories_old")
+
+    def _migrate_category_rules_with_ledger(self, cursor):
+        cursor.execute("PRAGMA table_info(category_rules)")
+        rows = cursor.fetchall()
+        has_ledger = any(r[1] == 'ledger_id' for r in rows)
+        cursor.execute("PRAGMA index_list(category_rules)")
+        idxs = cursor.fetchall()
+        has_ledger_unique = any('ledger' in (idx[1] or '') for idx in idxs)
+        if has_ledger and has_ledger_unique:
+            return
+        cursor.execute("SELECT id, keyword, category, priority, is_weak, created_at, updated_at, ledger_id FROM category_rules")
+        old_rows = cursor.fetchall()
+        cursor.execute("ALTER TABLE category_rules RENAME TO category_rules_old")
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS category_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                keyword TEXT NOT NULL,
+                category TEXT NOT NULL,
+                priority INTEGER DEFAULT 1,
+                is_weak INTEGER DEFAULT 0,
+                created_at TEXT,
+                updated_at TEXT,
+                ledger_id INTEGER,
+                UNIQUE(keyword, ledger_id)
+            )
+        ''')
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for r in old_rows:
+            cursor.execute('''
+                INSERT OR IGNORE INTO category_rules (id, keyword, category, priority, is_weak, created_at, updated_at, ledger_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (r[0], r[1], r[2], r[3], r[4], r[5] or now, r[6] or now, r[7] if len(r) > 7 else None))
+        cursor.execute("DROP TABLE IF EXISTS category_rules_old")
+
+    def _migrate_bills_with_ledger(self, cursor):
+        cursor.execute("PRAGMA table_info(bills)")
+        cols = cursor.fetchall()
+        has_ledger = any(c[1] == 'ledger_id' for c in cols)
+        if not has_ledger:
+            return
+        # assign default ledger_id to NULL entries
+        default_ledger = self.get_default_ledger_id()
+        cursor.execute('UPDATE bills SET ledger_id = ? WHERE ledger_id IS NULL', (default_ledger,))
+
+    def get_default_ledger_id(self) -> int:
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute('SELECT id FROM ledgers ORDER BY id LIMIT 1')
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else 0
+
+    def list_ledgers(self) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute('SELECT id, name, monthly_budget, created_at, updated_at FROM ledgers ORDER BY id')
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            {
+                "id": row[0],
+                "name": row[1],
+                "monthly_budget": row[2] or 0,
+                "created_at": row[3],
+                "updated_at": row[4]
+            }
+            for row in rows
+        ]
+
+    def save_ledger(self, ledger: Dict[str, Any]) -> int:
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ledger_id = ledger.get("id")
+        name = ledger.get("name")
+        budget = ledger.get("monthly_budget") or 0
+        if ledger_id:
+            cursor.execute('UPDATE ledgers SET name=?, monthly_budget=?, updated_at=? WHERE id=?',
+                           (name, budget, now, ledger_id))
+        else:
+            cursor.execute('INSERT INTO ledgers (name, monthly_budget, created_at, updated_at) VALUES (?, ?, ?, ?)',
+                           (name, budget, now, now))
+            ledger_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return ledger_id
+
+    def delete_ledger(self, ledger_id: int) -> bool:
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM ledgers WHERE id=?', (ledger_id,))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return deleted
         print(f"📘 [Enhanced DB] 数据库连接就绪: {self.db_name}")
     
     def _migrate_bills_table(self, cursor):
@@ -255,6 +429,8 @@ class EnhancedDatabaseManager:
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
         
+        if bill.ledger_id is None:
+            bill.ledger_id = self.get_default_ledger_id()
         bill.updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         raw_text_json = json.dumps(bill.raw_text, ensure_ascii=False)
         
@@ -263,21 +439,21 @@ class EnhancedDatabaseManager:
             cursor.execute('''
                 UPDATE bills 
                 SET image_name=?, merchant=?, category=?, amount=?, raw_text=?,
-                    bill_date=?, updated_at=?, is_manual=?
+                    bill_date=?, updated_at=?, is_manual=?, ledger_id=?
                 WHERE id=?
             ''', (bill.filename, bill.merchant, bill.category, bill.amount, 
                   raw_text_json, bill.bill_date, bill.updated_at, 
-                  int(bill.is_manual), bill.id))
+                  int(bill.is_manual), bill.ledger_id, bill.id))
             bill_id = bill.id
         else:
             # Insert new bill
             cursor.execute('''
                 INSERT INTO bills (record_time, image_name, merchant, category, amount, 
-                                 raw_text, bill_date, created_at, updated_at, is_manual)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 raw_text, bill_date, created_at, updated_at, is_manual, ledger_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (bill.created_at, bill.filename, bill.merchant, bill.category, 
                   bill.amount, raw_text_json, bill.bill_date, bill.created_at, 
-                  bill.updated_at, int(bill.is_manual)))
+                  bill.updated_at, int(bill.is_manual), bill.ledger_id))
             bill_id = cursor.lastrowid
         
         conn.commit()
@@ -307,17 +483,20 @@ class EnhancedDatabaseManager:
         params.extend(categories)
         return query
 
-    def _fetch_category_names_by_major_minor(self, cursor, major: str = None, minor: str = None) -> Optional[List[str]]:
+    def _fetch_category_names_by_major_minor(self, cursor, major: str = None, minor: str = None, ledger_id: Optional[int] = None) -> Optional[List[str]]:
         if not major and not minor:
             return None
         query = 'SELECT major, minor FROM categories WHERE 1=1'
-        params = []
+        params: List[Any] = []
         if major:
             query += ' AND major = ?'
             params.append(major)
         if minor:
             query += ' AND minor = ?'
             params.append(minor)
+        if ledger_id is not None:
+            query += ' AND (ledger_id IS NULL OR ledger_id = ?)'
+            params.append(ledger_id)
         cursor.execute(query, params)
         rows = cursor.fetchall()
         return [self._format_category_name(row[0], row[1]) for row in rows]
@@ -325,7 +504,8 @@ class EnhancedDatabaseManager:
     def get_bills(self, limit: int = 100, offset: int = 0, 
                   start_date: str = None, end_date: str = None,
                   category: str = None, keyword: str = None,
-                  major: str = None, minor: str = None) -> List[EnhancedBill]:
+                  major: str = None, minor: str = None,
+                  ledger_id: Optional[int] = None) -> List[EnhancedBill]:
         """Get bills with filtering and pagination"""
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -345,13 +525,17 @@ class EnhancedDatabaseManager:
         if category:
             categories_filter = [category]
         elif major or minor:
-            categories_filter = self._fetch_category_names_by_major_minor(cursor, major, minor)
+            categories_filter = self._fetch_category_names_by_major_minor(cursor, major, minor, ledger_id)
         query = self._append_category_filter(query, params, categories_filter)
 
         if keyword:
             keyword_like = f'%{keyword}%'
             query += ' AND (merchant LIKE ? OR raw_text LIKE ?)'
             params.extend([keyword_like, keyword_like])
+
+        if ledger_id is not None:
+            query += ' AND ledger_id = ?'
+            params.append(ledger_id)
         
         query += ' ORDER BY bill_date DESC, created_at DESC LIMIT ? OFFSET ?'
         params.extend([limit, offset])
@@ -364,7 +548,8 @@ class EnhancedDatabaseManager:
 
     def get_bills_count(self, start_date: str = None, end_date: str = None,
                         category: str = None, keyword: str = None,
-                        major: str = None, minor: str = None) -> int:
+                        major: str = None, minor: str = None,
+                        ledger_id: Optional[int] = None) -> int:
         """Get total bill count with filtering"""
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -384,13 +569,17 @@ class EnhancedDatabaseManager:
         if category:
             categories_filter = [category]
         elif major or minor:
-            categories_filter = self._fetch_category_names_by_major_minor(cursor, major, minor)
+            categories_filter = self._fetch_category_names_by_major_minor(cursor, major, minor, ledger_id)
         query = self._append_category_filter(query, params, categories_filter)
 
         if keyword:
             keyword_like = f'%{keyword}%'
             query += ' AND (merchant LIKE ? OR raw_text LIKE ?)'
             params.extend([keyword_like, keyword_like])
+
+        if ledger_id is not None:
+            query += ' AND ledger_id = ?'
+            params.append(ledger_id)
 
         cursor.execute(query, params)
         count = cursor.fetchone()[0] or 0
@@ -415,6 +604,7 @@ class EnhancedDatabaseManager:
         
         return EnhancedBill(
             id=row[0],
+            ledger_id=row[11] if len(row) > 11 else None,
             filename=row[2] or "",
             merchant=row[3] or "",
             amount=row[5] or 0.0,
@@ -427,12 +617,19 @@ class EnhancedDatabaseManager:
         )
     
     # Category Rules CRUD operations
-    def get_category_rules(self) -> List[CategoryRule]:
-        """Get all category rules"""
+    def get_category_rules(self, ledger_id: Optional[int] = None) -> List[CategoryRule]:
+        """Get all category rules (global + specific ledger when provided)"""
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
-        
-        cursor.execute('SELECT * FROM category_rules ORDER BY priority DESC, keyword')
+
+        query = 'SELECT * FROM category_rules WHERE 1=1'
+        params: List[Any] = []
+        if ledger_id is not None:
+            query += ' AND (ledger_id IS NULL OR ledger_id = ?)'
+            params.append(ledger_id)
+
+        query += ' ORDER BY category, priority DESC, keyword'
+        cursor.execute(query, params)
         rows = cursor.fetchall()
         conn.close()
         
@@ -443,24 +640,26 @@ class EnhancedDatabaseManager:
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
         
+        if rule.ledger_id is None:
+            rule.ledger_id = self.get_default_ledger_id()
         rule.updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         if rule.id:
             # Update existing rule
             cursor.execute('''
                 UPDATE category_rules 
-                SET keyword=?, category=?, priority=?, is_weak=?, updated_at=?
+                SET keyword=?, category=?, priority=?, is_weak=?, updated_at=?, ledger_id=?
                 WHERE id=?
             ''', (rule.keyword, rule.category, rule.priority, 
-                  int(rule.is_weak), rule.updated_at, rule.id))
+                  int(rule.is_weak), rule.updated_at, rule.ledger_id, rule.id))
             rule_id = rule.id
         else:
             # Insert new rule
             cursor.execute('''
-                INSERT INTO category_rules (keyword, category, priority, is_weak, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO category_rules (keyword, category, priority, is_weak, created_at, updated_at, ledger_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ''', (rule.keyword, rule.category, rule.priority, 
-                  int(rule.is_weak), rule.created_at, rule.updated_at))
+                  int(rule.is_weak), rule.created_at, rule.updated_at, rule.ledger_id))
             rule_id = cursor.lastrowid
         
         conn.commit()
@@ -488,15 +687,22 @@ class EnhancedDatabaseManager:
             priority=row[3],
             is_weak=bool(row[4]),
             created_at=row[5],
-            updated_at=row[6]
+            updated_at=row[6],
+            ledger_id=row[7] if len(row) > 7 else None
         )
 
     # Category Groups CRUD operations
-    def get_category_groups(self) -> List[CategoryGroup]:
-        """Get all category groups"""
+    def get_category_groups(self, ledger_id: Optional[int] = None) -> List[CategoryGroup]:
+        """Get all category groups (global + specific ledger)"""
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM categories ORDER BY major, minor')
+        params: List[Any] = []
+        query = 'SELECT * FROM categories WHERE 1=1'
+        if ledger_id is not None:
+            query += ' AND (ledger_id IS NULL OR ledger_id = ?)'
+            params.append(ledger_id)
+        query += ' ORDER BY major, minor'
+        cursor.execute(query, params)
         rows = cursor.fetchall()
         conn.close()
         return [self._row_to_category_group(row) for row in rows]
@@ -512,23 +718,28 @@ class EnhancedDatabaseManager:
             return self._row_to_category_group(row)
         return None
 
-    def get_category_group_by_name(self, category_name: str) -> Optional[CategoryGroup]:
+    def get_category_group_by_name(self, category_name: str, ledger_id: Optional[int] = None) -> Optional[CategoryGroup]:
         """Get a category group by full name"""
         group = self._split_category_name(category_name)
         if not group.major:
             return None
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
-        cursor.execute('SELECT * FROM categories WHERE major = ? AND minor = ?', (group.major, group.minor))
+        params: List[Any] = [group.major, group.minor]
+        query = 'SELECT * FROM categories WHERE major = ? AND minor = ?'
+        if ledger_id is not None:
+            query += ' AND (ledger_id IS NULL OR ledger_id = ?)'
+            params.append(ledger_id)
+        cursor.execute(query, params)
         row = cursor.fetchone()
         conn.close()
         if row:
             return self._row_to_category_group(row)
         return None
 
-    def category_exists(self, category_name: str) -> bool:
+    def category_exists(self, category_name: str, ledger_id: Optional[int] = None) -> bool:
         """Check if a category exists"""
-        return self.get_category_group_by_name(category_name) is not None
+        return self.get_category_group_by_name(category_name, ledger_id) is not None
 
     def save_category_group(self, group: CategoryGroup) -> int:
         """Save a category group and propagate renames to rules"""
@@ -537,7 +748,7 @@ class EnhancedDatabaseManager:
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         if group.id:
-            cursor.execute('SELECT major, minor FROM categories WHERE id = ?', (group.id,))
+            cursor.execute('SELECT major, minor, ledger_id FROM categories WHERE id = ?', (group.id,))
             row = cursor.fetchone()
             if not row:
                 conn.close()
@@ -546,13 +757,14 @@ class EnhancedDatabaseManager:
             old_name = self._format_category_name(row[0], row[1])
             new_name = self._format_category_name(group.major, group.minor)
             group.updated_at = now
+            group.ledger_id = group.ledger_id if group.ledger_id is not None else row[2]
 
             try:
                 cursor.execute('''
                     UPDATE categories
-                    SET major = ?, minor = ?, updated_at = ?
+                    SET major = ?, minor = ?, updated_at = ?, ledger_id = ?
                     WHERE id = ?
-                ''', (group.major, group.minor, group.updated_at, group.id))
+                ''', (group.major, group.minor, group.updated_at, group.ledger_id, group.id))
             except sqlite3.IntegrityError:
                 conn.close()
                 raise ValueError("Category already exists")
@@ -561,22 +773,22 @@ class EnhancedDatabaseManager:
                 cursor.execute('''
                     UPDATE category_rules
                     SET category = ?
-                    WHERE category = ?
-                ''', (new_name, old_name))
+                    WHERE category = ? AND (ledger_id IS NULL OR ledger_id = ?)
+                ''', (new_name, old_name, group.ledger_id))
                 cursor.execute('''
                     UPDATE bills
                     SET category = ?
-                    WHERE category = ?
-                ''', (new_name, old_name))
+                    WHERE category = ? AND ledger_id = ?
+                ''', (new_name, old_name, group.ledger_id))
             group_id = group.id
         else:
             group.created_at = now
             group.updated_at = now
             try:
                 cursor.execute('''
-                    INSERT INTO categories (major, minor, created_at, updated_at)
-                    VALUES (?, ?, ?, ?)
-                ''', (group.major, group.minor, group.created_at, group.updated_at))
+                    INSERT INTO categories (major, minor, created_at, updated_at, ledger_id)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (group.major, group.minor, group.created_at, group.updated_at, group.ledger_id))
             except sqlite3.IntegrityError:
                 conn.close()
                 raise ValueError("Category already exists")
@@ -611,9 +823,9 @@ class EnhancedDatabaseManager:
         conn.close()
         return {'deleted': deleted, 'in_use': 0}
 
-    def list_category_names(self) -> List[str]:
+    def list_category_names(self, ledger_id: Optional[int] = None) -> List[str]:
         """Get full category names for dropdowns"""
-        groups = self.get_category_groups()
+        groups = self.get_category_groups(ledger_id)
         names = [self._format_category_name(group.major, group.minor) for group in groups]
         return [name for name in names if name]
 
@@ -624,61 +836,73 @@ class EnhancedDatabaseManager:
             major=row[1],
             minor=row[2],
             created_at=row[3],
-            updated_at=row[4]
+            updated_at=row[4],
+            ledger_id=row[5] if len(row) > 5 else None
         )
     
     # Analytics methods
     def get_spending_summary(self, start_date: str = None, end_date: str = None,
                              keyword: str = None, major: str = None,
-                             minor: str = None) -> Dict[str, Any]:
+                             minor: str = None, ledger_id: Optional[int] = None) -> Dict[str, Any]:
         """Get spending summary for a date range"""
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
-        
-        query = 'SELECT SUM(amount), COUNT(*) FROM bills WHERE 1=1'
+
+        base_query = 'FROM bills WHERE 1=1'
         params = []
-        
+
         if start_date:
-            query += ' AND bill_date >= ?'
+            base_query += ' AND bill_date >= ?'
             params.append(start_date)
-        
+
         if end_date:
-            query += ' AND bill_date <= ?'
+            base_query += ' AND bill_date <= ?'
             params.append(end_date)
 
-        categories_filter = self._fetch_category_names_by_major_minor(cursor, major, minor)
-        query = self._append_category_filter(query, params, categories_filter)
+        categories_filter = self._fetch_category_names_by_major_minor(cursor, major, minor, ledger_id)
+        base_query = self._append_category_filter(base_query, params, categories_filter)
+
+        if ledger_id is not None:
+            base_query += ' AND ledger_id = ?'
+            params.append(ledger_id)
 
         if keyword:
             keyword_like = f'%{keyword}%'
-            query += ' AND (merchant LIKE ? OR raw_text LIKE ?)'
+            base_query += ' AND (merchant LIKE ? OR raw_text LIKE ?)'
             params.extend([keyword_like, keyword_like])
-        
-        cursor.execute(query, params)
+
+        cursor.execute(f'SELECT SUM(amount), COUNT(*) {base_query}', params)
         total_amount, bill_count = cursor.fetchone()
-        
+
+        cursor.execute(f'SELECT COUNT(DISTINCT bill_date) {base_query}', params)
+        day_count = cursor.fetchone()[0] or 0
+
         # Get category breakdown
-        category_query = query.replace('SUM(amount), COUNT(*)', 'category, SUM(amount), COUNT(*)')
-        category_query += ' GROUP BY category ORDER BY SUM(amount) DESC'
-        
+        category_query = f'SELECT category, SUM(amount), COUNT(*) {base_query} GROUP BY category ORDER BY SUM(amount) DESC'
+
         cursor.execute(category_query, params)
         categories = {}
         for row in cursor.fetchall():
             categories[row[0]] = {'amount': row[1], 'count': row[2]}
-        
+
         conn.close()
-        
+
+        total_amount = total_amount or 0.0
+        daily_avg = (total_amount / day_count) if day_count else 0.0
+
         return {
-            'total_amount': total_amount or 0.0,
+            'total_amount': total_amount,
             'bill_count': bill_count or 0,
             'categories': categories,
             'period_start': start_date,
-            'period_end': end_date
+            'period_end': end_date,
+            'day_count': day_count,
+            'daily_avg': daily_avg
         }
     
     def get_daily_spending(self, start_date: str = None, end_date: str = None,
                            keyword: str = None, major: str = None,
-                           minor: str = None) -> List[Dict[str, Any]]:
+                           minor: str = None, ledger_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Get daily spending data"""
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -698,8 +922,12 @@ class EnhancedDatabaseManager:
             query += ' AND bill_date <= ?'
             params.append(end_date)
 
-        categories_filter = self._fetch_category_names_by_major_minor(cursor, major, minor)
+        categories_filter = self._fetch_category_names_by_major_minor(cursor, major, minor, ledger_id)
         query = self._append_category_filter(query, params, categories_filter)
+
+        if ledger_id is not None:
+            query += ' AND ledger_id = ?'
+            params.append(ledger_id)
 
         if keyword:
             keyword_like = f'%{keyword}%'
