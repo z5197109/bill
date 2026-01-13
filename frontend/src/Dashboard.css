@@ -1,0 +1,674 @@
+/* Dashboard Container */
+.dashboard-container {
+  padding: 24px;
+  min-height: 100vh;
+  background-color: #f5f5f5;
+}
+
+/* Monthly Spending Card */
+.monthly-spending-card .ant-card-body {
+  padding: 32px 24px;
+}
+
+.monthly-spending-card .ant-card-head-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.monthly-spending-card .monthly-amount {
+  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: -0.5px;
+  transition: all 0.3s ease;
+}
+
+.monthly-spending-card:hover .monthly-amount {
+  transform: scale(1.02);
+  color: #096dd9;
+}
+
+/* Empty state for monthly spending */
+.monthly-spending-card .ant-empty {
+  margin: 20px 0;
+}
+
+/* Loading state for monthly spending */
+.monthly-spending-card .ant-spin-container {
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Budget Status Card */
+.budget-status-card .ant-card-body {
+  padding: 24px;
+}
+
+.budget-status-card .ant-card-head-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Budget Progress Bar Styles */
+.budget-progress-container {
+  position: relative;
+  margin: 16px 0;
+}
+
+.budget-progress-bar {
+  width: 100%;
+  height: 20px;
+  background-color: #f0f0f0;
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.budget-progress-used {
+  height: 100%;
+  background-color: #1A237E !important;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.budget-progress-marker {
+  position: absolute;
+  top: -2px;
+  height: calc(100% + 4px);
+  width: 2px;
+  background-color: #1890ff;
+  border-left: 2px dashed #1890ff;
+  z-index: 10;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.budget-progress-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* Budget Status Indicators */
+.budget-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Budget Health Message */
+.budget-health-message {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.4;
+  transition: all 0.3s ease;
+}
+
+.budget-health-good {
+  background-color: #f6ffed;
+  color: #389e0d;
+  border: 1px solid #b7eb8f;
+}
+
+.budget-health-warning {
+  background-color: #fffbe6;
+  color: #d48806;
+  border: 1px solid #ffe58f;
+}
+
+.budget-health-danger {
+  background-color: #fff2f0;
+  color: #cf1322;
+  border: 1px solid #ffccc7;
+}
+
+/* Responsive adjustments for budget card */
+@media (max-width: 768px) {
+  .budget-status-card .ant-card-body {
+    padding: 20px 16px;
+  }
+  
+  .budget-progress-bar {
+    height: 16px;
+  }
+  
+  .budget-progress-labels {
+    font-size: 11px;
+  }
+}
+
+/* Category Breakdown Card */
+.category-breakdown-card .ant-card-body {
+  padding: 24px;
+  overflow: visible;
+}
+
+.category-breakdown-card .ant-card-head-title {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Add padding to row to accommodate rank badges */
+.category-breakdown-card .ant-row {
+  margin: 8px -8px;
+}
+
+.category-breakdown-card .ant-col {
+  padding: 8px;
+}
+
+/* Category Items */
+.category-item {
+  display: flex;
+  align-items: center;
+  padding: 16px 12px;
+  background-color: #fafafa;
+  border-radius: 8px;
+  border: 1px solid #f0f0f0;
+  position: relative;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  overflow: visible;
+  margin: 8px 0;
+}
+
+.category-item::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.1) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.category-item:hover::before {
+  opacity: 1;
+}
+
+.category-item:hover {
+  background-color: #f0f0f0;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border-color: #d9d9d9;
+}
+
+.category-icon {
+  font-size: 28px;
+  margin-right: 12px;
+  min-width: 36px;
+  text-align: center;
+  transition: transform 0.3s ease;
+}
+
+.category-item:hover .category-icon {
+  transform: scale(1.1);
+}
+
+.category-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.category-name {
+  font-weight: bold;
+  margin-bottom: 4px;
+  font-size: 14px;
+  color: #262626;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.3s ease;
+}
+
+.category-amount {
+  margin-bottom: 2px;
+  font-size: 16px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.category-count {
+  font-size: 11px;
+  color: #8c8c8c;
+  transition: color 0.3s ease;
+}
+
+.category-item:hover .category-count {
+  color: #595959;
+}
+
+/* Rank badges */
+.category-rank-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: bold;
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.category-rank-1 {
+  background: linear-gradient(135deg, #faad14 0%, #d48806 100%);
+}
+
+.category-rank-2 {
+  background: linear-gradient(135deg, #8c8c8c 0%, #595959 100%);
+}
+
+.category-rank-3 {
+  background: linear-gradient(135deg, #d4b106 0%, #ad8b00 100%);
+}
+
+/* Amount indicator bar */
+.category-amount-bar {
+  width: 4px;
+  height: 40px;
+  border-radius: 2px;
+  margin-left: 8px;
+  opacity: 0.8;
+  transition: all 0.3s ease;
+}
+
+.category-item:hover .category-amount-bar {
+  opacity: 1;
+  width: 6px;
+}
+
+/* Empty state */
+.category-breakdown-card .ant-empty {
+  margin: 20px 0;
+}
+
+.category-breakdown-card .ant-empty-description {
+  color: #999;
+}
+
+/* Summary info */
+.category-summary {
+  margin-top: 16px;
+  padding: 8px 12px;
+  background-color: #fafafa;
+  border-radius: 6px;
+  text-align: center;
+  border: 1px solid #f0f0f0;
+}
+
+/* Responsive design for categories */
+@media (max-width: 768px) {
+  .category-breakdown-card .ant-card-body {
+    padding: 20px 16px;
+  }
+  
+  .category-item {
+    padding: 12px 10px;
+  }
+  
+  .category-icon {
+    font-size: 24px;
+    margin-right: 10px;
+    min-width: 30px;
+  }
+  
+  .category-name {
+    font-size: 13px;
+  }
+  
+  .category-amount {
+    font-size: 14px;
+  }
+  
+  .category-count {
+    font-size: 10px;
+  }
+}
+
+@media (max-width: 576px) {
+  .category-item {
+    padding: 10px 8px;
+  }
+  
+  .category-icon {
+    font-size: 20px;
+    margin-right: 8px;
+    min-width: 24px;
+  }
+  
+  .category-amount-bar {
+    width: 3px;
+    height: 30px;
+  }
+}
+
+/* Add Bill Button */
+.add-bill-button-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+}
+
+.add-bill-button {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  position: relative;
+  overflow: hidden;
+}
+
+.add-bill-button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 16px rgba(0, 21, 41, 0.4) !important;
+}
+
+.add-bill-button:active {
+  transform: translateY(0) scale(0.95) !important;
+}
+
+.add-bill-button:focus {
+  box-shadow: 0 4px 12px rgba(0, 21, 41, 0.3), 0 0 0 2px rgba(24, 144, 255, 0.2) !important;
+}
+
+/* Ripple effect */
+.add-bill-button-ripple {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.1);
+  transform: translate(-50%, -50%) scale(0);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.add-bill-button:active .add-bill-button-ripple {
+  transform: translate(-50%, -50%) scale(1.5);
+  opacity: 1;
+}
+
+/* Floating animation */
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+.add-bill-button-container:hover .add-bill-button {
+  animation: none;
+}
+
+/* Pulse effect for attention */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 4px 12px rgba(0, 21, 41, 0.3);
+  }
+  50% {
+    box-shadow: 0 4px 12px rgba(0, 21, 41, 0.3), 0 0 0 8px rgba(0, 21, 41, 0.1);
+  }
+  100% {
+    box-shadow: 0 4px 12px rgba(0, 21, 41, 0.3);
+  }
+}
+
+/* Loading state */
+.add-bill-button.ant-btn-loading {
+  pointer-events: none;
+}
+
+.add-bill-button.ant-btn-loading:hover {
+  transform: none !important;
+  box-shadow: 0 4px 12px rgba(0, 21, 41, 0.3) !important;
+}
+
+/* Responsive design for add bill button */
+@media (max-width: 768px) {
+  .add-bill-button-container {
+    bottom: 16px !important;
+    right: 16px !important;
+  }
+  
+  .add-bill-button {
+    height: 44px !important;
+    font-size: 14px !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}
+
+@media (max-width: 576px) {
+  .add-bill-button-container {
+    bottom: 12px !important;
+    right: 12px !important;
+  }
+  
+  .add-bill-button {
+    height: 40px !important;
+    font-size: 13px !important;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+}
+
+/* Accessibility improvements */
+.add-bill-button:focus-visible {
+  outline: 2px solid #1890ff;
+  outline-offset: 2px;
+}
+
+/* Dark mode support (if needed) */
+@media (prefers-color-scheme: dark) {
+  .add-bill-button {
+    background-color: #1890ff !important;
+    border-color: #1890ff !important;
+  }
+  
+  .add-bill-button:hover {
+    background-color: #40a9ff !important;
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .dashboard-container {
+    padding: 16px;
+  }
+  
+  .add-bill-button {
+    bottom: 16px !important;
+    right: 16px !important;
+  }
+  
+  .add-bill-button .ant-btn {
+    height: 44px !important;
+    font-size: 14px !important;
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+  }
+}
+
+@media (max-width: 576px) {
+  .dashboard-container {
+    padding: 12px;
+  }
+  
+  /* Stack cards vertically on small screens */
+  .monthly-spending-card .ant-card-body,
+  .budget-status-card .ant-card-body {
+    padding: 20px 16px;
+  }
+  
+  /* Smaller font size for mobile */
+  .monthly-spending-card .ant-card-body > div > div:first-child {
+    font-size: 28px !important;
+  }
+}
+
+/* Loading and Error States */
+.dashboard-loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+  flex-direction: column;
+}
+
+.dashboard-error {
+  margin: 20px;
+}
+
+/* Card Hover Effects */
+.ant-card {
+  transition: all 0.3s ease;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.ant-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+}
+
+/* Progress Bar Enhancements */
+.budget-progress-container {
+  position: relative;
+  margin: 16px 0;
+}
+
+.budget-progress-bar {
+  width: 100%;
+  height: 20px;
+  background-color: #f0f0f0;
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.budget-progress-used {
+  height: 100%;
+  background-color: #8c8c8c;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transition: width 0.3s ease;
+}
+
+.budget-progress-marker {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 2px;
+  background-color: #1890ff;
+  border-left: 2px dashed #1890ff;
+}
+
+.budget-progress-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+/* Category Items */
+.category-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  background-color: #fafafa;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.category-item:hover {
+  background-color: #f0f0f0;
+  transform: translateY(-1px);
+}
+
+.category-icon {
+  font-size: 24px;
+  margin-right: 12px;
+  min-width: 32px;
+  text-align: center;
+}
+
+.category-info {
+  flex: 1;
+}
+
+.category-name {
+  font-weight: bold;
+  margin-bottom: 2px;
+}
+
+.category-amount {
+  color: #666;
+  margin-bottom: 2px;
+}
+
+.category-count {
+  font-size: 12px;
+  color: #999;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #999;
+}
+
+.empty-state .anticon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  color: #d9d9d9;
+}
+
+/* Header Styles */
+.dashboard-header {
+  margin-bottom: 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.dashboard-title {
+  margin: 0 !important;
+}
+
+.dashboard-subtitle {
+  color: rgba(0, 0, 0, 0.45);
+  margin-top: 4px;
+}
+
+@media (max-width: 576px) {
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}

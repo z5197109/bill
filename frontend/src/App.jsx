@@ -31,7 +31,9 @@ import {
   UploadOutlined,
 } from '@ant-design/icons'
 import moment from 'moment'
+import Dashboard from './Dashboard'
 import './App.css'
+import './Dashboard.css'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -39,7 +41,7 @@ const { RangePicker } = DatePicker
 const I18N = {
     appTitle: '账单助手 - React',
     appSubtitle: '上传识别、消费分析、分类配置',
-    tabs: ['上传识别', '消费分析', '分类与规则'],
+    tabs: ['财务看板', '上传识别', '消费分析', '分类与规则'],
     ledger: {
       label: '账本',
       section: '账本',
@@ -150,7 +152,7 @@ const numberOrZero = (val) => {
 const fileKey = (file) => `${file.name}|${file.size}|${file.lastModified}`
 
 function App() {
-  const [tab, setTab] = useState('upload')
+  const [tab, setTab] = useState('dashboard')
   const [ledgers, setLedgers] = useState([])
   const [currentLedgerId, setCurrentLedgerId] = useState(null)
   const [ledgerForm, setLedgerForm] = useState({ name: '', monthly_budget: '' })
@@ -178,6 +180,9 @@ function App() {
   const [analyticsPage, setAnalyticsPage] = useState(1)
   const pageSize = 20
 
+  // Dashboard refresh trigger
+  const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(null)
+
   const [catForm, setCatForm] = useState({ major: '', minor: '', scope: 'current' })
   const [ruleForm, setRuleForm] = useState({
     keyword: '',
@@ -188,6 +193,11 @@ function App() {
   })
 
   const [messageApi, contextHolder] = message.useMessage()
+
+  // Helper function to trigger dashboard refresh
+  const triggerDashboardRefresh = () => {
+    setDashboardRefreshTrigger(Date.now())
+  }
 
   const t = (keyPath) => keyPath.split('.').reduce((acc, cur) => (acc ? acc[cur] : undefined), I18N) || keyPath
   const currency = '¥'
@@ -292,6 +302,8 @@ function App() {
       if (data.success) {
         pushToast(t('toasts.ledgerSaved'), 'success')
         loadLedgers()
+        // Trigger dashboard refresh after budget update
+        triggerDashboardRefresh()
       } else {
         pushToast(data.error || t('toasts.ledgerSaveFail'), 'error')
       }
@@ -598,6 +610,10 @@ function App() {
       if (data.success) {
         pushToast(data.message || t('toasts.saveDone'), 'success')
         setResults([])
+        // Trigger dashboard refresh after successful save
+        setDashboardRefreshTrigger(Date.now())
+        // Refresh analytics as well
+        refreshAnalytics(1)
       } else {
         pushToast(data.error || t('toasts.saveFail'), 'error')
       }
@@ -813,7 +829,15 @@ function App() {
         </div>
 
         <Tabs activeKey={tab} onChange={setTab}>
-          <Tabs.TabPane tab={t('tabs.0')} key="upload">
+          <Tabs.TabPane tab={t('tabs.0')} key="dashboard">
+            <Dashboard 
+              currentLedgerId={currentLedgerId}
+              onAddBill={() => setTab('upload')}
+              refreshTrigger={dashboardRefreshTrigger}
+            />
+          </Tabs.TabPane>
+
+          <Tabs.TabPane tab={t('tabs.1')} key="upload">
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
               <Card title={t('ledger.section')}>
                 <Row gutter={16}>
@@ -944,7 +968,7 @@ function App() {
             </Space>
           </Tabs.TabPane>
 
-          <Tabs.TabPane tab={t('tabs.1')} key="analytics">
+          <Tabs.TabPane tab={t('tabs.2')} key="analytics">
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
               <Card title={t('analytics.title')}>
                 <Row gutter={12} align="middle">
@@ -1072,7 +1096,7 @@ function App() {
             </Space>
           </Tabs.TabPane>
 
-          <Tabs.TabPane tab={t('tabs.2')} key="config">
+          <Tabs.TabPane tab={t('tabs.3')} key="config">
             <Row gutter={16}>
               <Col xs={24} lg={12}>
                 <Card title={t('config.categoriesTitle')}>

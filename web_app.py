@@ -877,6 +877,102 @@ def get_category_analytics():
             'error': str(e)
         }), 500
 
+# === Dashboard API Endpoints ===
+
+@app.route('/api/dashboard/summary', methods=['GET'])
+def get_dashboard_summary():
+    """Get dashboard summary data including monthly spending, budget status, and top categories"""
+    try:
+        init_processors(need_db=True)
+        
+        ledger_id = get_ledger_id_from_request()
+        
+        # Get current month date range
+        from datetime import datetime, date
+        import calendar
+        
+        today = date.today()
+        month_start = today.replace(day=1).strftime('%Y-%m-%d')
+        last_day = calendar.monthrange(today.year, today.month)[1]
+        month_end = today.replace(day=last_day).strftime('%Y-%m-%d')
+        
+        # Get monthly spending summary
+        monthly_summary = enhanced_db.get_spending_summary(
+            start_date=month_start,
+            end_date=month_end,
+            ledger_id=ledger_id
+        )
+        
+        # Get budget information from ledger
+        ledgers = enhanced_db.list_ledgers()
+        current_ledger = next((l for l in ledgers if l['id'] == ledger_id), None)
+        total_budget = current_ledger['monthly_budget'] if current_ledger else 0.0
+        
+        # Calculate budget status
+        used_amount = monthly_summary['total_amount']
+        used_percentage = (used_amount / total_budget * 100) if total_budget > 0 else 0
+        
+        # Calculate time progress (how much of the month has passed)
+        days_in_month = last_day
+        current_day = today.day
+        time_progress = (current_day / days_in_month * 100)
+        
+        # Get top 3 categories
+        top_categories = []
+        category_items = list(monthly_summary['categories'].items())
+        category_items.sort(key=lambda x: x[1]['amount'], reverse=True)
+        
+        # Category icon mapping
+        category_icons = {
+            '住房': {'icon': '🏠', 'color': '#ff7875'},
+            '餐饮': {'icon': '🍽️', 'color': '#ffa940'},
+            '购物': {'icon': '🛒', 'color': '#73d13d'},
+            '交通': {'icon': '🚗', 'color': '#40a9ff'},
+            '娱乐': {'icon': '🎮', 'color': '#b37feb'},
+            '医疗': {'icon': '🏥', 'color': '#ff85c0'},
+            '教育': {'icon': '📚', 'color': '#36cfc9'},
+            '其他': {'icon': '📦', 'color': '#95de64'}
+        }
+        
+        for category_name, category_data in category_items[:3]:
+            # Extract major category for icon mapping
+            major_category = category_name.split('/')[0] if '/' in category_name else category_name
+            icon_info = category_icons.get(major_category, category_icons['其他'])
+            
+            top_categories.append({
+                'category': category_name,
+                'amount': category_data['amount'],
+                'count': category_data['count'],
+                'icon': icon_info['icon'],
+                'color': icon_info['color']
+            })
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'monthly_spending': used_amount,
+                'budget_info': {
+                    'total_budget': total_budget,
+                    'used_amount': used_amount,
+                    'used_percentage': round(used_percentage, 1),
+                    'time_progress': round(time_progress, 1),
+                    'remaining_budget': total_budget - used_amount
+                },
+                'top_categories': top_categories,
+                'metadata': {
+                    'month': today.strftime('%Y-%m'),
+                    'ledger_id': ledger_id,
+                    'last_updated': datetime.now().isoformat()
+                }
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/bills/export', methods=['GET'])
 def export_bills():
     """Export bills as CSV with filters"""
@@ -1337,4 +1433,4 @@ if __name__ == '__main__':
     
     print("🚀 启动 SnapLedger Web 应用...")
     print("📱 访问地址: http://localhost:5000")
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=False, host='127.0.0.1', port=5000, use_reloader=False)
