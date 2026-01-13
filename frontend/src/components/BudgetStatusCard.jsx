@@ -6,8 +6,8 @@ const { Text } = Typography
 function BudgetStatusCard({ budgetInfo, loading }) {
   if (loading) {
     return (
-      <Card 
-        title="预算状态" 
+      <Card
+        title="预算状态"
         className="budget-status-card"
         style={{ height: '100%' }}
       >
@@ -28,9 +28,17 @@ function BudgetStatusCard({ budgetInfo, loading }) {
     remaining_budget: remainingBudget = 0
   } = budgetInfo || {}
 
+  // ---------- 3 档提示颜色：绿（良好）/橙（偏高）/红（超预算） ----------
+  const diff = usedPercentage - timeProgress
+  const isOver = remainingBudget < 0 || usedPercentage > 100
+  const isWarn = !isOver && diff > 10 // “超前很多” → 橙色（你可调阈值）
+
+  const msgBg = isOver ? '#fff2f0' : (isWarn ? '#fff7e6' : '#f6ffed')
+  const msgColor = isOver ? '#cf1322' : (isWarn ? '#d46b08' : '#389e0d')
+
   return (
-    <Card 
-      title="预算状态" 
+    <Card
+      title="预算状态"
       className="budget-status-card"
       style={{ height: '100%' }}
     >
@@ -41,23 +49,23 @@ function BudgetStatusCard({ budgetInfo, loading }) {
             总预算: ¥{formatAmount(totalBudget)}
           </Text>
         </div>
-        
+
         {/* Custom Progress Bar with Time Marker */}
         <div style={{ marginBottom: '16px' }}>
           <div className="budget-progress-container">
-            <div 
+            <div
               className="budget-progress-bar"
-              style={{ 
-                width: '100%', 
-                height: '20px', 
-                backgroundColor: '#f0f0f0', 
+              style={{
+                width: '100%',
+                height: '20px',
+                backgroundColor: '#f0f0f0',
                 borderRadius: '10px',
                 position: 'relative',
                 overflow: 'hidden'
               }}
             >
               {/* Used amount (navy blue) */}
-              <div 
+              <div
                 className="budget-progress-used"
                 style={{
                   width: `${Math.min(usedPercentage, 100)}%`,
@@ -68,12 +76,12 @@ function BudgetStatusCard({ budgetInfo, loading }) {
                   top: 0,
                   transition: 'width 0.3s ease',
                   borderRadius: usedPercentage >= 100 ? '10px' : '10px 0 0 10px'
-                }} 
+                }}
               />
-              
+
               {/* Remaining budget (light blue) - only show if not over budget */}
               {usedPercentage < 100 && (
-                <div 
+                <div
                   style={{
                     width: `${100 - usedPercentage}%`,
                     height: '100%',
@@ -82,12 +90,12 @@ function BudgetStatusCard({ budgetInfo, loading }) {
                     right: 0,
                     top: 0,
                     borderRadius: '0 10px 10px 0'
-                  }} 
+                  }}
                 />
               )}
-              
+
               {/* Time progress marker (dashed line) */}
-              <div 
+              <div
                 className="budget-progress-marker"
                 style={{
                   position: 'absolute',
@@ -98,9 +106,9 @@ function BudgetStatusCard({ budgetInfo, loading }) {
                   backgroundColor: '#1890ff',
                   borderLeft: '2px dashed #1890ff',
                   zIndex: 10
-                }} 
+                }}
               />
-              
+
               {/* Time progress label */}
               <div
                 style={{
@@ -117,52 +125,57 @@ function BudgetStatusCard({ budgetInfo, loading }) {
                 今天
               </div>
             </div>
-            
+
             {/* Progress Labels */}
-            <div 
+            <div
               className="budget-progress-labels"
-              style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
                 marginTop: '8px',
                 fontSize: '12px'
               }}
             >
-              <Text type="secondary">
-                已用 {usedPercentage.toFixed(1)}%
-              </Text>
-              <Text type="secondary">
-                本月已过 {timeProgress.toFixed(1)}%
-              </Text>
+              <Text type="secondary">已用 {Number(usedPercentage).toFixed(1)}%</Text>
+              <Text type="secondary">本月已过 {Number(timeProgress).toFixed(1)}%</Text>
             </div>
           </div>
         </div>
-        
-        {/* Budget Summary */}
+
+        {/* Budget Summary（✅ 超预算显示“开支超额”） */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <Text style={{ fontSize: '14px' }}>
-              剩余预算: 
-              <span style={{ 
-                color: remainingBudget >= 0 ? '#52c41a' : '#ff4d4f',
-                fontWeight: 'bold',
-                marginLeft: '4px'
-              }}>
-                ¥{formatAmount(remainingBudget)}
-              </span>
-            </Text>
+            {(() => {
+              const over = remainingBudget < 0 || usedPercentage > 100
+              const label = over ? '开支超额' : '剩余预算'
+              const value = over ? Math.abs(remainingBudget) : remainingBudget
+              const color = over ? '#ff4d4f' : '#52c41a'
+
+              return (
+                <Text style={{ fontSize: '14px' }}>
+                  {label}:
+                  <span
+                    style={{
+                      color,
+                      fontWeight: 'bold',
+                      marginLeft: '4px'
+                    }}
+                  >
+                    ¥{formatAmount(value)}
+                  </span>
+                </Text>
+              )
+            })()}
           </div>
-          
+
           {/* Budget Status Indicator */}
-          <div>
-            {getBudgetStatusIndicator(usedPercentage, timeProgress)}
-          </div>
+          <div>{getBudgetStatusIndicator(usedPercentage, timeProgress)}</div>
         </div>
-        
-        {/* Budget Health Message */}
-        <div style={{ marginTop: '12px', padding: '8px', backgroundColor: '#f6ffed', borderRadius: '4px' }}>
-          <Text style={{ fontSize: '12px', color: '#389e0d' }}>
-            {getBudgetHealthMessage(usedPercentage, timeProgress)}
+
+        {/* Budget Health Message（✅ 绿/橙/红 三档） */}
+        <div style={{ marginTop: '12px', padding: '8px', backgroundColor: msgBg, borderRadius: '4px' }}>
+          <Text style={{ fontSize: '13px', color: msgColor }}>
+            {getBudgetHealthMessage(totalBudget, remainingBudget, usedPercentage, timeProgress)}
           </Text>
         </div>
       </div>
@@ -172,67 +185,107 @@ function BudgetStatusCard({ budgetInfo, loading }) {
 
 // Format amount with proper locale and decimal places
 function formatAmount(amount) {
-  if (amount === null || amount === undefined) {
-    return '0.00'
-  }
-  
+  if (amount === null || amount === undefined) return '0.00'
   const numAmount = Number(amount)
-  if (isNaN(numAmount)) {
-    return '0.00'
-  }
-  
-  return Math.abs(numAmount).toLocaleString('zh-CN', { 
-    minimumFractionDigits: 2, 
-    maximumFractionDigits: 2 
+  if (isNaN(numAmount)) return '0.00'
+
+  return Math.abs(numAmount).toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
   })
 }
 
 // Get budget status indicator
 function getBudgetStatusIndicator(usedPercentage, timeProgress) {
+  const diff = usedPercentage - timeProgress
   if (usedPercentage > 100) {
     return <span style={{ color: '#ff4d4f', fontSize: '12px' }}>⚠️ 超预算</span>
-  } else if (usedPercentage > timeProgress + 10) {
+  } else if (diff > 10) {
     return <span style={{ color: '#faad14', fontSize: '12px' }}>⚡ 偏高</span>
   } else {
     return <span style={{ color: '#52c41a', fontSize: '12px' }}>✅ 良好</span>
   }
 }
 
-// Get budget health message
-function getBudgetHealthMessage(usedPercentage, timeProgress) {
-  const difference = usedPercentage - timeProgress
-  
-  if (usedPercentage > 100) {
-    return `已超出预算 ${(usedPercentage - 100).toFixed(1)}%，建议控制支出`
-  } else if (difference > 15) {
-    return `支出进度超前 ${difference.toFixed(1)}%，建议适当控制消费`
-  } else if (difference > 5) {
-    return `支出进度略微超前，请注意控制`
-  } else if (difference < -10) {
-    return `支出进度良好，剩余预算充足`
-  } else {
-    return `支出进度正常，继续保持良好的理财习惯`
+// ✅ Get budget health message（包含：剩余日均可用 + 提高/下降提示）
+function getBudgetHealthMessage(totalBudget, remainingBudget, usedPercentage, timeProgress) {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth() // 0-11
+  const daysInMonth = new Date(y, m + 1, 0).getDate()
+  const day = now.getDate()
+  const remainingDays = Math.max(1, daysInMonth - day + 1) // 含今天，避免除 0
+
+  // 你当前把 paceMsg 注释了，这里保持空字符串也兼容；
+  // 如果后面想恢复，也不会影响 JSX 结构
+  const diff = usedPercentage - timeProgress
+  let paceMsg = ''
+
+  const baseDaily = totalBudget > 0 ? totalBudget / daysInMonth : 0
+  const remainingDaily = remainingDays > 0 ? remainingBudget / remainingDays : remainingBudget
+
+  // 小工具：避免 paceMsg 为空时多余空格
+  const Pace = () => (paceMsg ? <span>{paceMsg} </span> : null)
+
+  // 超预算：预算缺口 +（可选）日均需少花
+  if (remainingBudget < 0) {
+    const deficit = Math.abs(remainingBudget)
+    const dailyNeedCut = deficit / remainingDays
+
+    return (
+      <span>
+        <Pace />
+        本月剩余 <b>{remainingDays}</b> 天，预算缺口 <b>¥{formatAmount(deficit)}</b>
+        {/* 你原来注释掉的部分，如果想要就取消注释 */}
+        {/* ，日均需少花 <b>¥{formatAmount(dailyNeedCut)}</b> 才能回到预算内。 */}
+        。
+      </span>
+    )
   }
+
+  // 未设置预算：只展示剩余日均可用
+  if (!totalBudget || totalBudget <= 0) {
+    return (
+      <span>
+        <Pace />
+        本月剩余 <b>{remainingDays}</b> 天，日均可用 <b>¥{formatAmount(remainingDaily)}</b>。
+      </span>
+    )
+  }
+
+  // 日均趋势：与“月均日预算”对比
+  const delta = remainingDaily - baseDaily
+  const up = delta >= 0
+  const arrow = up ? '📈' : '📉'
+  const trendWord = up ? '提高' : '下降'
+
+  return (
+    <span>
+      <Pace />
+      本月剩余 <b>{remainingDays}</b> 天，日均可用 <b>¥{formatAmount(remainingDaily)}</b>；<br />
+      较月均日预算 <b>¥{formatAmount(baseDaily)}</b>/天 {trendWord}{' '}
+      <b>¥{formatAmount(Math.abs(delta))}</b>/天 {arrow}。
+    </span>
+  )
 }
+
 
 BudgetStatusCard.propTypes = {
   budgetInfo: PropTypes.shape({
-    totalBudget: PropTypes.number,
-    usedAmount: PropTypes.number,
-    usedPercentage: PropTypes.number,
-    timeProgress: PropTypes.number,
-    remainingBudget: PropTypes.number
+    total_budget: PropTypes.number,
+    used_percentage: PropTypes.number,
+    time_progress: PropTypes.number,
+    remaining_budget: PropTypes.number
   }),
   loading: PropTypes.bool
 }
 
 BudgetStatusCard.defaultProps = {
   budgetInfo: {
-    totalBudget: 0,
-    usedAmount: 0,
-    usedPercentage: 0,
-    timeProgress: 0,
-    remainingBudget: 0
+    total_budget: 0,
+    used_percentage: 0,
+    time_progress: 0,
+    remaining_budget: 0
   },
   loading: false
 }
