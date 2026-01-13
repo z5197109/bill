@@ -109,6 +109,30 @@ header p {
     font-size: 1.1em;
 }
 
+.ledger-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: white;
+    border: 1px solid #ecf0f1;
+    border-radius: 10px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+}
+
+.ledger-bar label {
+    font-weight: 700;
+    color: #2c3e50;
+}
+
+.ledger-bar select {
+    padding: 8px 12px;
+    border: 1px solid #dfe6e9;
+    border-radius: 8px;
+    min-width: 180px;
+}
+
 .analytics-filter {
     display: flex;
     flex-direction: column;
@@ -139,6 +163,38 @@ header p {
     flex-wrap: wrap;
     gap: 10px;
     align-items: center;
+}
+
+.sub-tab-bar {
+    display: flex;
+    gap: 10px;
+    margin: 8px 0 16px;
+    flex-wrap: wrap;
+}
+
+.sub-tab-btn {
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1px solid #dfe6e9;
+    background: white;
+    color: #2c3e50;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.sub-tab-btn.active {
+    background: linear-gradient(135deg, #2ecc71, #58d68d);
+    color: white;
+    border-color: transparent;
+}
+
+.sub-tab-content {
+    display: none;
+}
+
+.sub-tab-content.active {
+    display: block;
 }
 
 .quick-range {
@@ -610,6 +666,10 @@ header p {
     align-items: end;
 }
 
+.compact-form {
+    grid-template-columns: 1fr auto;
+}
+
 .form-group label {
     display: block;
     font-weight: 700;
@@ -639,6 +699,41 @@ header p {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+.rule-category-selects {
+    display: flex;
+    gap: 8px;
+    flex-wrap: nowrap;
+}
+
+.rule-category-selects select {
+    min-width: 140px;
+}
+
+.category-split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.category-block {
+    background: #fdfefe;
+    border: 1px solid #ecf0f1;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+.category-block .block-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.category-block .muted {
+    font-size: 0.9em;
 }
 
 .danger-btn {

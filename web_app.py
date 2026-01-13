@@ -64,6 +64,7 @@ bill_parser = None
 excel_saver = None
 db_saver = None
 enhanced_db = None
+_default_ledger_id = None
 
 
 def allowed_file(filename):
@@ -77,7 +78,7 @@ import os
 _init_lock = threading.Lock()
 
 def init_processors(*, need_parser=False, need_savers=False, need_db=False):
-    global bill_parser, excel_saver, db_saver, enhanced_db
+    global bill_parser, excel_saver, db_saver, enhanced_db, _default_ledger_id
 
     # ✅ 快速路径：本次需要的都准备好才 return
     if ((not need_parser or bill_parser is not None) and
@@ -91,10 +92,12 @@ def init_processors(*, need_parser=False, need_savers=False, need_db=False):
             cpu_threads = min(8, max(2, cpu // 2))
 
             bill_parser = BillParser(
-                max_side=640,
-                jpeg_quality=30,
+                max_side=1280,
+                jpeg_quality=80,
                 use_gpu=True,
-                cpu_threads=cpu_threads
+                cpu_threads=cpu_threads,
+                debug=True,
+                templates_path="templates.json"
             )
 
         if need_savers:
@@ -105,10 +108,25 @@ def init_processors(*, need_parser=False, need_savers=False, need_db=False):
 
         if need_db and enhanced_db is None:
             enhanced_db = EnhancedDatabaseManager()
+            _default_ledger_id = enhanced_db.get_default_ledger_id()
+
+        if bill_parser is not None and enhanced_db is not None:
+            # 让模板解析使用数据库中的最新分类规则
+            bill_parser.category_rules_loader = lambda: enhanced_db.get_category_rules(_default_ledger_id)
 
 
 _ocr_ready = threading.Event()
 _ocr_error = None
+
+
+def get_ledger_id_from_request():
+    try:
+        lid = request.args.get('ledger_id') or request.form.get('ledger_id') or (request.get_json() or {}).get('ledger_id')
+        if lid in (None, '', 'null'):
+            return _default_ledger_id
+        return int(lid)
+    except Exception:
+        return _default_ledger_id
 
 def warmup_ocr_async():
     global _ocr_error
@@ -139,13 +157,68 @@ def format_category_name(major, minor):
 
 @app.route('/')
 def index():
-    """Serve the main HTML page"""
-    return send_from_directory('static', 'index.html')
+    """Serve the main HTML page (React build preferred)"""
+    react_root = os.path.join(app.static_folder, 'react')
+    react_index = os.path.join(react_root, 'index.html')
+    if os.path.exists(react_index):
+        return send_from_directory(react_root, 'index.html')
+    return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/<path:filename>')
 def static_files(filename):
-    """Serve static files"""
-    return send_from_directory('static', filename)
+    """Serve static files from legacy or React build output"""
+    base_path = os.path.join(app.static_folder, filename)
+    react_root = os.path.join(app.static_folder, 'react')
+    react_path = os.path.join(react_root, filename)
+
+    if os.path.exists(base_path):
+        return send_from_directory(app.static_folder, filename)
+    if os.path.exists(react_path):
+        return send_from_directory(react_root, filename)
+    # fallback to React index for SPA routing if build exists
+    if os.path.exists(os.path.join(react_root, 'index.html')):
+        return send_from_directory(react_root, 'index.html')
+    return send_from_directory(app.static_folder, 'index.html')
+
+# === Ledger API ===
+
+@app.route('/api/ledgers', methods=['GET'])
+def list_ledgers():
+    init_processors(need_db=True)
+    ledgers = enhanced_db.list_ledgers()
+    return jsonify({'success': True, 'ledgers': ledgers})
+
+
+@app.route('/api/ledgers', methods=['POST'])
+def create_ledger():
+    init_processors(need_db=True)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    budget = float(data.get('monthly_budget') or 0)
+    if not name:
+        return jsonify({'success': False, 'error': '账本名称不能为空'}), 400
+    ledger_id = enhanced_db.save_ledger({'name': name, 'monthly_budget': budget})
+    return jsonify({'success': True, 'ledger_id': ledger_id})
+
+
+@app.route('/api/ledgers/<int:ledger_id>', methods=['PUT'])
+def update_ledger(ledger_id):
+    init_processors(need_db=True)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    budget = float(data.get('monthly_budget') or 0)
+    if not name:
+        return jsonify({'success': False, 'error': '账本名称不能为空'}), 400
+    enhanced_db.save_ledger({'id': ledger_id, 'name': name, 'monthly_budget': budget})
+    return jsonify({'success': True})
+
+
+@app.route('/api/ledgers/<int:ledger_id>', methods=['DELETE'])
+def delete_ledger(ledger_id):
+    init_processors(need_db=True)
+    # Optional: could check if bills exist, but keep simple
+    deleted = enhanced_db.delete_ledger(ledger_id)
+    return jsonify({'success': deleted})
 
 @app.route('/api/save', methods=['POST'])
 def save_bills():
@@ -175,10 +248,12 @@ def save_bills():
         for bill_data in bills:
             try:
                 # Validate required fields
-                required_fields = ['merchant', 'amount', 'category', 'filename']
+                required_fields = ['merchant', 'amount', 'filename']
                 for field in required_fields:
                     if field not in bill_data:
                         raise ValueError(f"Missing required field: {field}")
+                if not (bill_data.get('category') or bill_data.get('category_id')):
+                    raise ValueError("Missing required field: category")
                 
                 # Create enhanced bill object
                 from app.enhanced_storage import EnhancedBill
@@ -186,10 +261,12 @@ def save_bills():
                     filename=bill_data['filename'],
                     merchant=str(bill_data['merchant']).strip(),
                     amount=float(bill_data['amount']),
-                    category=str(bill_data['category']).strip(),
+                    category=str(bill_data.get('category') or '').strip(),
+                    category_id=bill_data.get('category_id'),
                     bill_date=bill_data.get('bill_date', ''),
                     raw_text=[],  # We don't have raw_text in the save request
-                    is_manual=bill_data.get('is_manual', False)
+                    is_manual=bill_data.get('is_manual', False),
+                    ledger_id=bill_data.get('ledger_id') or data.get('ledger_id') or get_ledger_id_from_request()
                 )
                 
                 # Validate amount
@@ -233,103 +310,116 @@ def save_bills():
 @app.route('/api/upload', methods=['POST'])
 def upload_files():
     """Handle multiple file uploads and process bills"""
-    try:
-        # ✅ 确保 init_processors() 内部是“只初始化一次”
-        init_processors(need_parser=True, need_savers=True, need_db=True)
+    # try:
+    # ✅ 确保 init_processors() 内部是“只初始化一次”
+    init_processors(need_parser=True, need_savers=True, need_db=True)
 
 
-        if 'files' not in request.files:
-            return jsonify({'success': False, 'error': 'No files provided'}), 400
+    ledger_id = request.form.get('ledger_id') or get_ledger_id_from_request()
+    if bill_parser:
+        bill_parser.category_rules_loader = lambda: enhanced_db.get_category_rules(ledger_id)
 
-        files = request.files.getlist('files')
-        if not files or all(f.filename == '' for f in files):
-            return jsonify({'success': False, 'error': 'No files selected'}), 400
+    if 'files' not in request.files:
+        return jsonify({'success': False, 'error': 'No files provided'}), 400
 
-        bill_date = request.form.get('bill_date') or date.today().strftime('%Y-%m-%d')
+    files = request.files.getlist('files')
+    if not files or all(f.filename == '' for f in files):
+        return jsonify({'success': False, 'error': 'No files selected'}), 400
 
-        results = []
-        errors = []
+    bill_date = request.form.get('bill_date') or date.today().strftime('%Y-%m-%d')
 
-        # 先把有效文件收集起来：保存临时文件 + 生成缩略预览
-        items = []  # 每个元素：{id, filename, temp_path, preview_b64}
-        for f in files:
-            if not f or f.filename == '':
-                continue
+    results = []
+    errors = []
 
-            filename = secure_filename(f.filename)
+    # 先把有效文件收集起来：保存临时文件 + 生成缩略预览
+    items = []  # 每个元素：{id, filename, temp_path, preview_b64}
+    for f in files:
+        if not f or f.filename == '':
+            continue
 
-            if not allowed_file(filename):
-                errors.append(f"File {filename}: Unsupported file type")
-                continue
+        filename = secure_filename(f.filename)
 
-            file_id = str(uuid.uuid4())
+        if not allowed_file(filename):
+            errors.append(f"File {filename}: Unsupported file type")
+            continue
 
-            # ✅ 只读一次：拿到 bytes，用于写盘 + 预览
-            image_bytes = f.read()
-            if not image_bytes:
-                errors.append(f"File {filename}: Empty file")
-                continue
+        file_id = str(uuid.uuid4())
 
-            temp_path = os.path.join(config.OUTPUT_DIR, f"temp_{file_id}_{filename}")
-            try:
-                with open(temp_path, "wb") as fp:
-                    fp.write(image_bytes)
-            except Exception as e:
-                errors.append(f"File {filename}: Save failed - {str(e)}")
-                continue
+        # ✅ 只读一次：拿到 bytes，用于写盘 + 预览
+        image_bytes = f.read()
+        if not image_bytes:
+            errors.append(f"File {filename}: Empty file")
+            continue
 
-            preview_b64 = _make_preview_base64(image_bytes, max_side=900, jpeg_quality=75)
+        temp_path = os.path.join(config.OUTPUT_DIR, f"temp_{file_id}_{filename}")
+        try:
+            with open(temp_path, "wb") as fp:
+                fp.write(image_bytes)
+        except Exception as e:
+            errors.append(f"File {filename}: Save failed - {str(e)}")
+            continue
 
-            items.append({
-                "id": file_id,
-                "filename": filename,
-                "temp_path": temp_path,
-                "preview_b64": preview_b64,
-            })
+        preview_b64 = _make_preview_base64(image_bytes, max_side=900, jpeg_quality=75)
 
-        if not items:
-            return jsonify({'success': True, 'results': [], 'errors': errors})
+        items.append({
+            "id": file_id,
+            "filename": filename,
+            "temp_path": temp_path,
+            "preview_b64": preview_b64,
+        })
 
-        # ✅ 并行 OCR：一次性批处理（你前面优化的 parse_batch 在这里才吃满收益）
-        ocr_start = time.perf_counter()
-        print(f"🧾 [OCR] 开始识别 {len(items)} 张账单...")
-        paths = [it["temp_path"] for it in items]
-        bill_datas = bill_parser.parse_batch(paths)  # 内部会自动计算 max_workers（你已加第3步联动）
-        ocr_elapsed = time.perf_counter() - ocr_start
-        print(f"✅ [OCR] 完成识别 {len(items)} 张账单，耗时 {ocr_elapsed:.2f}s")
+    if not items:
+        return jsonify({'success': True, 'results': [], 'errors': errors})
 
-        # 组装结果 + 清理临时文件
-        for it, bill_data in zip(items, bill_datas):
-            err = bill_data.get("error")
-            result = {
-                'id': it["id"],
-                'filename': it["filename"],
-                'merchant': bill_data.get('merchant', ''),
-                'amount': bill_data.get('amount', 0.0),
-                'category': bill_data.get('category', ''),
-                'raw_text': bill_data.get('raw_text', []),
+    # ✅ 并行 OCR：一次性批处理（你前面优化的 parse_batch 在这里才吃满收益）
+    ocr_start = time.perf_counter()
+    print(f"🧾 [OCR] 开始识别 {len(items)} 张账单...")
+    paths = [it["temp_path"] for it in items]
+    bill_datas = bill_parser.parse_batch(paths)  # 内部会自动计算 max_workers（你已加第3步联动）
+    
+    # debug
+    for i, d in enumerate(bill_datas):
+        dbg = d.get("_debug", {})
+        print(f"[{i}] tpl={d.get('_template')} merchant={d.get('merchant')}")
+        print("item", dbg.get("item"))
+        print("indexed_scoped_lines head", dbg.get("indexed_scoped_lines", [])[:8])
 
-                # ✅ 返回缩略预览（不建议返回原图，会很慢）
-                'image_data': it["preview_b64"],
-                'bill_date': bill_date,
-                'error': err
-            }
-            results.append(result)
-            if err:
-                errors.append(f"File {it['filename']}: {err}")
 
-        # ✅ 统一清理临时文件
-        for it in items:
-            try:
-                if os.path.exists(it["temp_path"]):
-                    os.remove(it["temp_path"])
-            except OSError:
-                pass
+    ocr_elapsed = time.perf_counter() - ocr_start
+    print(f"✅ [OCR] 完成识别 {len(items)} 张账单，耗时 {ocr_elapsed:.2f}s")
 
-        return jsonify({'success': True, 'results': results, 'errors': errors})
+    # 组装结果 + 清理临时文件
+    for it, bill_data in zip(items, bill_datas):
+        err = bill_data.get("error")
+        result = {
+            'id': it["id"],
+            'filename': it["filename"],
+            'merchant': bill_data.get('merchant', ''),
+            'amount': bill_data.get('amount', 0.0),
+            'category': bill_data.get('category', ''),
+            'raw_text': bill_data.get('raw_text', []),
 
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+            # ✅ 返回缩略预览（不建议返回原图，会很慢）
+            'image_data': it["preview_b64"],
+            'bill_date': bill_date,
+            'error': err
+        }
+        results.append(result)
+        if err:
+            errors.append(f"File {it['filename']}: {err}")
+
+    # ✅ 统一清理临时文件
+    for it in items:
+        try:
+            if os.path.exists(it["temp_path"]):
+                os.remove(it["temp_path"])
+        except OSError:
+            pass
+
+    return jsonify({'success': True, 'results': results, 'errors': errors})
+
+    # except Exception as e:
+    #     return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/categories', methods=['GET'])
 def get_categories():
@@ -367,6 +457,7 @@ def get_bills():
         keyword = request.args.get('keyword')
         major = request.args.get('major')
         minor = request.args.get('minor')
+        ledger_id = get_ledger_id_from_request()
         
         # Validate limit
         if limit > 1000:
@@ -380,7 +471,8 @@ def get_bills():
             category=category,
             keyword=keyword,
             major=major,
-            minor=minor
+            minor=minor,
+            ledger_id=ledger_id
         )
         total_count = enhanced_db.get_bills_count(
             start_date=start_date,
@@ -388,7 +480,8 @@ def get_bills():
             category=category,
             keyword=keyword,
             major=major,
-            minor=minor
+            minor=minor,
+            ledger_id=ledger_id
         )
         
         # Convert to JSON format
@@ -399,11 +492,13 @@ def get_bills():
                 'filename': bill.filename,
                 'merchant': bill.merchant,
                 'amount': bill.amount,
+                'category_id': bill.category_id,
                 'category': bill.category,
                 'bill_date': bill.bill_date,
                 'created_at': bill.created_at,
                 'updated_at': bill.updated_at,
-                'is_manual': bill.is_manual
+                'is_manual': bill.is_manual,
+                'ledger_id': bill.ledger_id
             })
         
         return jsonify({
@@ -433,23 +528,30 @@ def create_bill():
             }), 400
         
         # Validate required fields
-        required_fields = ['merchant', 'amount', 'category']
+        required_fields = ['merchant', 'amount']
         for field in required_fields:
-            if field not in data or not data[field]:
+            if field not in data or data[field] in (None, ''):
                 return jsonify({
                     'success': False,
                     'error': f'Missing required field: {field}'
                 }), 400
+        if not (data.get('category') or data.get('category_id')):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: category'
+            }), 400
         
         # Create new bill
         bill = EnhancedBill(
             filename=data.get('filename', 'manual_entry'),
             merchant=str(data['merchant']).strip(),
             amount=float(data['amount']),
-            category=str(data['category']).strip(),
+            category=str(data.get('category') or '').strip(),
+            category_id=data.get('category_id'),
             bill_date=data.get('bill_date', ''),
             raw_text=data.get('raw_text', []),
-            is_manual=True
+            is_manual=True,
+            ledger_id=data.get('ledger_id') or get_ledger_id_from_request()
         )
         
         # Validate amount
@@ -470,6 +572,7 @@ def create_bill():
                 'filename': bill.filename,
                 'merchant': bill.merchant,
                 'amount': bill.amount,
+                'category_id': bill.category_id,
                 'category': bill.category,
                 'bill_date': bill.bill_date,
                 'created_at': bill.created_at,
@@ -522,6 +625,8 @@ def update_bill(bill_id):
                 }), 400
         if 'category' in data:
             bill.category = str(data['category']).strip()
+        if 'category_id' in data:
+            bill.category_id = data['category_id']
         if 'bill_date' in data:
             bill.bill_date = data['bill_date']
         if 'filename' in data:
@@ -537,6 +642,7 @@ def update_bill(bill_id):
                 'filename': bill.filename,
                 'merchant': bill.merchant,
                 'amount': bill.amount,
+                'category_id': bill.category_id,
                 'category': bill.category,
                 'bill_date': bill.bill_date,
                 'created_at': bill.created_at,
@@ -595,7 +701,8 @@ def get_analytics_summary():
         major = request.args.get('major')
         minor = request.args.get('minor')
         
-        summary = enhanced_db.get_spending_summary(start_date, end_date, keyword, major, minor)
+        ledger_id = get_ledger_id_from_request()
+        summary = enhanced_db.get_spending_summary(start_date, end_date, keyword, major, minor, ledger_id)
         
         return jsonify({
             'success': True,
@@ -620,7 +727,8 @@ def get_daily_analytics():
         major = request.args.get('major')
         minor = request.args.get('minor')
         
-        daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor)
+        ledger_id = get_ledger_id_from_request()
+        daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor, ledger_id)
         
         return jsonify({
             'success': True,
@@ -646,7 +754,8 @@ def get_weekly_analytics():
         minor = request.args.get('minor')
         
         # Get daily data and aggregate by week
-        daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor)
+        ledger_id = get_ledger_id_from_request()
+        daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor, ledger_id)
         
         # Group by week
         weekly_data = {}
@@ -695,7 +804,8 @@ def get_yearly_analytics():
         minor = request.args.get('minor')
 
         # Get all daily data and aggregate by year
-        daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor)
+        ledger_id = get_ledger_id_from_request()
+        daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor, ledger_id)
         
         # Group by year
         yearly_data = {}
@@ -739,7 +849,8 @@ def get_category_analytics():
         major = request.args.get('major')
         minor = request.args.get('minor')
         
-        summary = enhanced_db.get_spending_summary(start_date, end_date, keyword, major, minor)
+        ledger_id = get_ledger_id_from_request()
+        summary = enhanced_db.get_spending_summary(start_date, end_date, keyword, major, minor, ledger_id)
         
         # Format category data for frontend
         category_data = []
@@ -823,7 +934,8 @@ def get_category_groups():
     """Get all category groups"""
     try:
         init_processors(need_db=True, need_parser=True)
-        groups = enhanced_db.get_category_groups()
+        ledger_id = get_ledger_id_from_request()
+        groups = enhanced_db.get_category_groups(ledger_id)
         groups_data = []
         for group in groups:
             groups_data.append({
@@ -850,6 +962,8 @@ def create_category_group():
     try:
         init_processors()
         data = request.get_json()
+        ledger_raw = data.get('ledger_id') if data else None
+        ledger_id = None if ledger_raw in (None, '', 'null') else int(ledger_raw) if ledger_raw is not None else get_ledger_id_from_request()
         if not data:
             return jsonify({
                 'success': False,
@@ -864,7 +978,7 @@ def create_category_group():
                 'error': 'Missing required field: major'
             }), 400
 
-        group = CategoryGroup(major=major, minor=minor)
+        group = CategoryGroup(major=major, minor=minor, ledger_id=ledger_id)
         group_id = enhanced_db.save_category_group(group)
         group.id = group_id
 
@@ -895,6 +1009,7 @@ def update_category_group(category_id):
     """Update a category group"""
     try:
         init_processors()
+        ledger_id = get_ledger_id_from_request()
         data = request.get_json()
         if not data:
             return jsonify({
@@ -975,34 +1090,37 @@ def delete_category_group(category_id):
 @app.route('/api/config/categories', methods=['GET'])
 def get_category_rules():
     """Get all category rules"""
-    # try:
-    init_processors(need_db=True)
-    rules = enhanced_db.get_category_rules()
+    try:
+        init_processors(need_db=True)
+        ledger_id = get_ledger_id_from_request()
+        rules = enhanced_db.get_category_rules(ledger_id)
 
-    
-    # Convert to JSON format
-    rules_data = []
-    for rule in rules:
-        rules_data.append({
-            'id': rule.id,
-            'keyword': rule.keyword,
-            'category': rule.category,
-            'priority': rule.priority,
-            'is_weak': rule.is_weak,
-            'created_at': rule.created_at,
-            'updated_at': rule.updated_at
-        })
-    
-    return jsonify({
-        'success': True,
-        'rules': rules_data
-    })
         
-    # except Exception as e:
-    #     return jsonify({
-    #         'success': False,
-    #         'error': str(e)
-    #     }), 500
+        # Convert to JSON format
+        rules_data = []
+        for rule in rules:
+            rules_data.append({
+                'id': rule.id,
+                'keyword': rule.keyword,
+                'category_id': rule.category_id,
+                'category': rule.category,
+                'priority': rule.priority,
+                'is_weak': rule.is_weak,
+                'created_at': rule.created_at,
+                'updated_at': rule.updated_at,
+                'ledger_id': rule.ledger_id
+            })
+        
+        return jsonify({
+            'success': True,
+            'rules': rules_data
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/config/categories', methods=['POST'])
 def create_category_rule():
@@ -1011,6 +1129,8 @@ def create_category_rule():
         init_processors()
         
         data = request.get_json()
+        ledger_raw = data.get('ledger_id') if data else None
+        ledger_id = None if ledger_raw in (None, '', 'null') else int(ledger_raw) if ledger_raw is not None else get_ledger_id_from_request()
         if not data:
             return jsonify({
                 'success': False,
@@ -1018,30 +1138,35 @@ def create_category_rule():
             }), 400
         
         # Validate required fields
-        required_fields = ['keyword', 'category']
+        required_fields = ['keyword']
         for field in required_fields:
             if field not in data or not data[field]:
                 return jsonify({
                     'success': False,
                     'error': f'Missing required field: {field}'
                 }), 400
+        if not (data.get('category') or data.get('category_id')):
+            return jsonify({
+                'success': False,
+                'error': 'Missing required field: category'
+            }), 400
         
         # Create new rule
         rule = CategoryRule(
             keyword=str(data['keyword']).strip(),
-            category=str(data['category']).strip(),
+            category=str(data.get('category') or '').strip(),
+            category_id=data.get('category_id'),
             priority=int(data.get('priority', 1)),
-            is_weak=bool(data.get('is_weak', False))
+            is_weak=bool(data.get('is_weak', False)),
+            ledger_id=ledger_id
         )
 
-        if not enhanced_db.category_exists(rule.category):
-            return jsonify({
-                'success': False,
-                'error': f'Category "{rule.category}" does not exist. Please create it first.'
-            }), 400
+        # category resolution happens in storage; still ensure provided data is not empty
+        if not rule.category and not rule.category_id:
+            return jsonify({'success': False, 'error': 'Category is required'}), 400
         
         # Validate keyword uniqueness
-        existing_rules = enhanced_db.get_category_rules()
+        existing_rules = enhanced_db.get_category_rules(ledger_id)
         for existing_rule in existing_rules:
             if existing_rule.keyword.lower() == rule.keyword.lower():
                 return jsonify({
@@ -1058,11 +1183,13 @@ def create_category_rule():
             'rule': {
                 'id': rule.id,
                 'keyword': rule.keyword,
+                'category_id': rule.category_id,
                 'category': rule.category,
                 'priority': rule.priority,
                 'is_weak': rule.is_weak,
                 'created_at': rule.created_at,
-                'updated_at': rule.updated_at
+                'updated_at': rule.updated_at,
+                'ledger_id': rule.ledger_id
             }
         })
         
@@ -1118,12 +1245,9 @@ def update_category_rule(rule_id):
         
         if 'category' in data:
             new_category = str(data['category']).strip()
-            if not enhanced_db.category_exists(new_category):
-                return jsonify({
-                    'success': False,
-                    'error': f'Category "{new_category}" does not exist. Please create it first.'
-                }), 400
             rule.category = new_category
+        if 'category_id' in data:
+            rule.category_id = data['category_id']
         if 'priority' in data:
             rule.priority = int(data['priority'])
         if 'is_weak' in data:
@@ -1141,7 +1265,8 @@ def update_category_rule(rule_id):
                 'priority': rule.priority,
                 'is_weak': rule.is_weak,
                 'created_at': rule.created_at,
-                'updated_at': rule.updated_at
+                'updated_at': rule.updated_at,
+                'ledger_id': rule.ledger_id
             }
         })
         
