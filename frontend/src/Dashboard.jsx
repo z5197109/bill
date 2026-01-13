@@ -25,15 +25,17 @@ function Dashboard({ currentLedgerId, onAddBill, refreshTrigger }) {
   const [error, setError] = useState(null)
   const [lastRefresh, setLastRefresh] = useState(null)
   const lastRefreshTriggerRef = useRef(null)
+  const requestIdRef = useRef(0)
 
   // Fetch dashboard data with caching
   const fetchDashboardData = async (forceRefresh = false) => {
     if (!currentLedgerId) {
-      setError('请先选择一个账本')
-      setLoading(false)
+      setError(null)
+      setLoading(true)
       return
     }
 
+    const requestId = ++requestIdRef.current
     try {
       // Only show loading for initial load or forced refresh
       if (forceRefresh || !dashboardData) {
@@ -43,50 +45,38 @@ function Dashboard({ currentLedgerId, onAddBill, refreshTrigger }) {
       
       const response = await fetch(`/api/dashboard/summary?ledger_id=${currentLedgerId}`)
       const result = await response.json()
-      
+
+      if (requestId !== requestIdRef.current) {
+        return
+      }
+
       if (result.success) {
         setDashboardData(result.data)
         setLastRefresh(Date.now())
       } else {
-        setError(result.error || '获取看板数据失败')
+        setError(result.error || '????????')
       }
     } catch (err) {
-      setError('网络连接失败，请检查网络设置')
+      if (requestId !== requestIdRef.current) {
+        return
+      }
+      setError('??????????????')
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) {
+        setLoading(false)
+      }
     }
   }
 
   // Load data when component mounts or ledger changes
   useEffect(() => {
     if (!currentLedgerId) {
-      setError('请先选择一个账本')
-      setLoading(false)
+      setError(null)
+      setLoading(true)
       return
     }
 
-    const loadData = async () => {
-      try {
-        setLoading(true)
-        setError(null)
-        
-        const response = await fetch(`/api/dashboard/summary?ledger_id=${currentLedgerId}`)
-        const result = await response.json()
-        
-        if (result.success) {
-          setDashboardData(result.data)
-          setLastRefresh(Date.now())
-        } else {
-          setError(result.error || '获取看板数据失败')
-        }
-      } catch (err) {
-        setError('网络连接失败，请检查网络设置')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadData()
+    fetchDashboardData(true)
   }, [currentLedgerId])
 
   // Auto-refresh when refreshTrigger changes (e.g., after bill operations)

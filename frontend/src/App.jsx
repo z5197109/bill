@@ -366,6 +366,9 @@ function App() {
   }
 
   const loadCategories = async () => {
+    if (currentLedgerId === null) {
+      return
+    }
     try {
       const res = await fetch(`/api/config/category-groups?${buildQuery(withLedgerParams({}))}`)
       const data = await res.json()
@@ -378,6 +381,9 @@ function App() {
   }
 
   const loadRules = async () => {
+    if (currentLedgerId === null) {
+      return
+    }
     try {
       const res = await fetch(`/api/config/categories?${buildQuery(withLedgerParams({}))}`)
       const data = await res.json()
@@ -625,6 +631,9 @@ function App() {
   }
 
   const refreshAnalytics = async (page = analyticsPage, filtersOverride = null) => {
+    if (currentLedgerId === null) {
+      return
+    }
     setAnalyticsPage(page)
     const params = withLedgerParams(filtersOverride || analyticsFilters)
     try {
@@ -805,7 +814,12 @@ function App() {
   )
 
   return (
-    <Layout className="app">
+    <Layout className="app" style={{
+    background:
+      "radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.08), transparent 25%)," +
+      "radial-gradient(circle at 80% 0%, rgba(14, 165, 233, 0.08), transparent 25%)," +
+      "#f3f4f6"
+  }}>
       {contextHolder}
       <Layout.Content>
         <div className="app-header">
