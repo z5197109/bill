@@ -3,7 +3,7 @@ import PropTypes from 'prop-types'
 
 const { Text } = Typography
 
-function MonthlySpendingCard({ amount, loading, currency = '¥' }) {
+function MonthlySpendingCard({ amount, nonBudgetAmount, loading, currency = '¥' }) {
   return (
     <Card 
       title="本月支出" 
@@ -34,6 +34,13 @@ function MonthlySpendingCard({ amount, loading, currency = '¥' }) {
           <Text type="secondary" style={{ fontSize: '14px' }}>
             当前月份总支出
           </Text>
+          {Number(nonBudgetAmount) > 0 && (
+            <div style={{ marginTop: 4 }}>
+              <Text type="secondary" style={{ fontSize: '12px' }}>
+                其中 {currency} {formatAmount(nonBudgetAmount)} 不计入预算
+              </Text>
+            </div>
+          )}
         </div>
       )}
     </Card>
@@ -59,12 +66,14 @@ function formatAmount(amount) {
 
 MonthlySpendingCard.propTypes = {
   amount: PropTypes.number,
+  nonBudgetAmount: PropTypes.number,
   loading: PropTypes.bool,
   currency: PropTypes.string
 }
 
 MonthlySpendingCard.defaultProps = {
   amount: 0,
+  nonBudgetAmount: 0,
   loading: false,
   currency: '¥'
 }

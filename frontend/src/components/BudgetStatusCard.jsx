@@ -214,7 +214,8 @@ function getBudgetHealthMessage(totalBudget, remainingBudget, usedPercentage, ti
   const m = now.getMonth() // 0-11
   const daysInMonth = new Date(y, m + 1, 0).getDate()
   const day = now.getDate()
-  const remainingDays = Math.max(1, daysInMonth - day + 1) // 含今天，避免除 0
+  const remainingDays = Math.max(0, daysInMonth - day) // 不含今天
+  const remainingDaysForCalc = Math.max(1, remainingDays)
 
   // 你当前把 paceMsg 注释了，这里保持空字符串也兼容；
   // 如果后面想恢复，也不会影响 JSX 结构
@@ -222,7 +223,7 @@ function getBudgetHealthMessage(totalBudget, remainingBudget, usedPercentage, ti
   let paceMsg = ''
 
   const baseDaily = totalBudget > 0 ? totalBudget / daysInMonth : 0
-  const remainingDaily = remainingDays > 0 ? remainingBudget / remainingDays : remainingBudget
+  const remainingDaily = remainingDaysForCalc > 0 ? remainingBudget / remainingDaysForCalc : remainingBudget
 
   // 小工具：避免 paceMsg 为空时多余空格
   const Pace = () => (paceMsg ? <span>{paceMsg} </span> : null)
@@ -230,7 +231,7 @@ function getBudgetHealthMessage(totalBudget, remainingBudget, usedPercentage, ti
   // 超预算：预算缺口 +（可选）日均需少花
   if (remainingBudget < 0) {
     const deficit = Math.abs(remainingBudget)
-    const dailyNeedCut = deficit / remainingDays
+    const dailyNeedCut = deficit / remainingDaysForCalc
 
     return (
       <span>

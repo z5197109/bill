@@ -9,7 +9,7 @@ from werkzeug.utils import secure_filename
 import config
 from app.bill_parser import BillParser
 from app.storage import ExcelSaver, DatabaseSaver
-from app.enhanced_storage import EnhancedDatabaseManager, EnhancedBill, CategoryRule, CategoryGroup
+from app.enhanced_storage import EnhancedDatabaseManager, EnhancedBill, CategoryRule, CategoryGroup, RecurringRule
 from datetime import date
 try:
     from PIL import Image
@@ -127,6 +127,13 @@ def get_ledger_id_from_request():
         return int(lid)
     except Exception:
         return _default_ledger_id
+
+def ensure_recurring_bills(ledger_id):
+    try:
+        if enhanced_db is not None:
+            enhanced_db.generate_recurring_bills(ledger_id)
+    except Exception as e:
+        print(f"[Recurring] generate failed: {e}")
 
 def warmup_ocr_async():
     global _ocr_error
@@ -266,7 +273,8 @@ def save_bills():
                     bill_date=bill_data.get('bill_date', ''),
                     raw_text=[],  # We don't have raw_text in the save request
                     is_manual=bill_data.get('is_manual', False),
-                    ledger_id=bill_data.get('ledger_id') or data.get('ledger_id') or get_ledger_id_from_request()
+                    ledger_id=bill_data.get('ledger_id') or data.get('ledger_id') or get_ledger_id_from_request(),
+                    include_in_budget=bool(bill_data.get('include_in_budget', True))
                 )
                 
                 # Validate amount
@@ -457,6 +465,8 @@ def get_bills():
         keyword = request.args.get('keyword')
         major = request.args.get('major')
         minor = request.args.get('minor')
+        sort_by = request.args.get('sort_by')
+        sort_order = request.args.get('sort_order')
         ledger_id = get_ledger_id_from_request()
         
         # Validate limit
@@ -472,7 +482,9 @@ def get_bills():
             keyword=keyword,
             major=major,
             minor=minor,
-            ledger_id=ledger_id
+            ledger_id=ledger_id,
+            sort_by=sort_by,
+            sort_order=sort_order
         )
         total_count = enhanced_db.get_bills_count(
             start_date=start_date,
@@ -498,6 +510,7 @@ def get_bills():
                 'created_at': bill.created_at,
                 'updated_at': bill.updated_at,
                 'is_manual': bill.is_manual,
+                'include_in_budget': bill.include_in_budget,
                 'ledger_id': bill.ledger_id
             })
         
@@ -551,7 +564,8 @@ def create_bill():
             bill_date=data.get('bill_date', ''),
             raw_text=data.get('raw_text', []),
             is_manual=True,
-            ledger_id=data.get('ledger_id') or get_ledger_id_from_request()
+            ledger_id=data.get('ledger_id') or get_ledger_id_from_request(),
+            include_in_budget=bool(data.get('include_in_budget', True))
         )
         
         # Validate amount
@@ -577,7 +591,8 @@ def create_bill():
                 'bill_date': bill.bill_date,
                 'created_at': bill.created_at,
                 'updated_at': bill.updated_at,
-                'is_manual': bill.is_manual
+                'is_manual': bill.is_manual,
+                'include_in_budget': bill.include_in_budget
             }
         })
         
@@ -631,6 +646,8 @@ def update_bill(bill_id):
             bill.bill_date = data['bill_date']
         if 'filename' in data:
             bill.filename = data['filename']
+        if 'include_in_budget' in data:
+            bill.include_in_budget = bool(data['include_in_budget'])
         
         # Save updated bill
         enhanced_db.save_bill(bill)
@@ -647,7 +664,8 @@ def update_bill(bill_id):
                 'bill_date': bill.bill_date,
                 'created_at': bill.created_at,
                 'updated_at': bill.updated_at,
-                'is_manual': bill.is_manual
+                'is_manual': bill.is_manual,
+                'include_in_budget': bill.include_in_budget
             }
         })
         
@@ -702,6 +720,7 @@ def get_analytics_summary():
         minor = request.args.get('minor')
         
         ledger_id = get_ledger_id_from_request()
+        ensure_recurring_bills(ledger_id)
         summary = enhanced_db.get_spending_summary(start_date, end_date, keyword, major, minor, ledger_id)
         
         return jsonify({
@@ -728,6 +747,7 @@ def get_daily_analytics():
         minor = request.args.get('minor')
         
         ledger_id = get_ledger_id_from_request()
+        ensure_recurring_bills(ledger_id)
         daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor, ledger_id)
         
         return jsonify({
@@ -755,6 +775,7 @@ def get_weekly_analytics():
         
         # Get daily data and aggregate by week
         ledger_id = get_ledger_id_from_request()
+        ensure_recurring_bills(ledger_id)
         daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor, ledger_id)
         
         # Group by week
@@ -805,6 +826,7 @@ def get_yearly_analytics():
 
         # Get all daily data and aggregate by year
         ledger_id = get_ledger_id_from_request()
+        ensure_recurring_bills(ledger_id)
         daily_data = enhanced_db.get_daily_spending(start_date, end_date, keyword, major, minor, ledger_id)
         
         # Group by year
@@ -850,6 +872,7 @@ def get_category_analytics():
         minor = request.args.get('minor')
         
         ledger_id = get_ledger_id_from_request()
+        ensure_recurring_bills(ledger_id)
         summary = enhanced_db.get_spending_summary(start_date, end_date, keyword, major, minor, ledger_id)
         
         # Format category data for frontend
@@ -886,6 +909,7 @@ def get_dashboard_summary():
         init_processors(need_db=True)
         
         ledger_id = get_ledger_id_from_request()
+        ensure_recurring_bills(ledger_id)
         
         # Get current month date range
         from datetime import datetime, date
@@ -902,6 +926,12 @@ def get_dashboard_summary():
             end_date=month_end,
             ledger_id=ledger_id
         )
+        monthly_budget_summary = enhanced_db.get_spending_summary(
+            start_date=month_start,
+            end_date=month_end,
+            ledger_id=ledger_id,
+            include_in_budget=True
+        )
         
         # Get budget information from ledger
         ledgers = enhanced_db.list_ledgers()
@@ -909,8 +939,9 @@ def get_dashboard_summary():
         total_budget = current_ledger['monthly_budget'] if current_ledger else 0.0
         
         # Calculate budget status
-        used_amount = monthly_summary['total_amount']
+        used_amount = monthly_budget_summary['total_amount']
         used_percentage = (used_amount / total_budget * 100) if total_budget > 0 else 0
+        non_budget_spending = max(0.0, monthly_summary['total_amount'] - used_amount)
         
         # Calculate time progress (how much of the month has passed)
         days_in_month = last_day
@@ -950,7 +981,8 @@ def get_dashboard_summary():
         return jsonify({
             'success': True,
             'data': {
-                'monthly_spending': used_amount,
+                'monthly_spending': monthly_summary['total_amount'],
+                'non_budget_spending': non_budget_spending,
                 'budget_info': {
                     'total_budget': total_budget,
                     'used_amount': used_amount,
@@ -1201,7 +1233,6 @@ def get_category_rules():
                 'category_id': rule.category_id,
                 'category': rule.category,
                 'priority': rule.priority,
-                'is_weak': rule.is_weak,
                 'created_at': rule.created_at,
                 'updated_at': rule.updated_at,
                 'ledger_id': rule.ledger_id
@@ -1252,8 +1283,7 @@ def create_category_rule():
             keyword=str(data['keyword']).strip(),
             category=str(data.get('category') or '').strip(),
             category_id=data.get('category_id'),
-            priority=int(data.get('priority', 1)),
-            is_weak=bool(data.get('is_weak', False)),
+            priority=int(data.get('priority', 2)),
             ledger_id=ledger_id
         )
 
@@ -1282,7 +1312,6 @@ def create_category_rule():
                 'category_id': rule.category_id,
                 'category': rule.category,
                 'priority': rule.priority,
-                'is_weak': rule.is_weak,
                 'created_at': rule.created_at,
                 'updated_at': rule.updated_at,
                 'ledger_id': rule.ledger_id
@@ -1346,8 +1375,6 @@ def update_category_rule(rule_id):
             rule.category_id = data['category_id']
         if 'priority' in data:
             rule.priority = int(data['priority'])
-        if 'is_weak' in data:
-            rule.is_weak = bool(data['is_weak'])
         
         # Save updated rule
         enhanced_db.save_category_rule(rule)
@@ -1359,7 +1386,6 @@ def update_category_rule(rule_id):
                 'keyword': rule.keyword,
                 'category': rule.category,
                 'priority': rule.priority,
-                'is_weak': rule.is_weak,
                 'created_at': rule.created_at,
                 'updated_at': rule.updated_at,
                 'ledger_id': rule.ledger_id
@@ -1401,6 +1427,220 @@ def delete_category_rule(rule_id):
             'success': False,
             'error': str(e)
         }), 500
+
+# === Recurring Rules API Endpoints ===
+
+def _parse_schedule_values(schedule_type, raw_value):
+    if raw_value is None:
+        raise ValueError('Missing required field: schedule_value')
+    if isinstance(raw_value, list):
+        values = [int(v) for v in raw_value]
+    elif isinstance(raw_value, str):
+        raw_value = raw_value.strip()
+        if not raw_value:
+            values = []
+        elif ',' in raw_value:
+            values = [int(v) for v in raw_value.split(',') if v.strip()]
+        else:
+            values = [int(raw_value)]
+    else:
+        values = [int(raw_value)]
+
+    limit = 7 if schedule_type == 'weekly' else 31
+    filtered = sorted({v for v in values if 1 <= int(v) <= limit})
+    if not filtered:
+        raise ValueError('Invalid schedule_value')
+    return filtered
+
+@app.route('/api/recurring-rules', methods=['GET'])
+def get_recurring_rules():
+    """Get recurring bill rules for current ledger"""
+    try:
+        init_processors(need_db=True)
+        ledger_id = get_ledger_id_from_request()
+        ensure_recurring_bills(ledger_id)
+        rules = enhanced_db.get_recurring_rules(ledger_id)
+        rules_data = []
+        for rule in rules:
+            rules_data.append({
+                'id': rule.id,
+                'ledger_id': rule.ledger_id,
+                'amount': rule.amount,
+                'keyword': rule.keyword,
+                'category_id': rule.category_id,
+                'category': rule.category,
+                'note': rule.note,
+                'schedule_type': rule.schedule_type,
+                'schedule_value': rule.schedule_value,
+                'start_date': rule.start_date,
+                'end_date': rule.end_date,
+                'enabled': rule.enabled,
+                'include_in_budget': rule.include_in_budget,
+                'created_at': rule.created_at,
+                'updated_at': rule.updated_at,
+            })
+        return jsonify({'success': True, 'rules': rules_data})
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/recurring-rules', methods=['POST'])
+def create_recurring_rule():
+    """Create a recurring bill rule"""
+    try:
+        init_processors()
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+        ledger_raw = data.get('ledger_id')
+        ledger_id = None if ledger_raw in (None, '', 'null') else int(ledger_raw) if ledger_raw is not None else get_ledger_id_from_request()
+
+        schedule_type = str(data.get('schedule_type', '')).strip()
+        schedule_value = data.get('schedule_value')
+        start_date = str(data.get('start_date', '')).strip()
+        if not (data.get('category') or data.get('category_id')):
+            return jsonify({'success': False, 'error': 'Missing required field: category'}), 400
+        if schedule_type not in ('weekly', 'monthly'):
+            return jsonify({'success': False, 'error': 'Invalid schedule_type'}), 400
+        try:
+            schedule_values = _parse_schedule_values(schedule_type, schedule_value)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        if not start_date:
+            return jsonify({'success': False, 'error': 'Missing required field: start_date'}), 400
+
+        rule = RecurringRule(
+            ledger_id=ledger_id,
+            amount=float(data.get('amount') or 0),
+            keyword=str(data.get('keyword') or '').strip(),
+            category_id=data.get('category_id'),
+            category=str(data.get('category') or '').strip(),
+            note=str(data.get('note') or '').strip(),
+            schedule_type=schedule_type,
+            schedule_value=schedule_values,
+            start_date=start_date,
+            end_date=str(data.get('end_date') or '').strip() or None,
+            enabled=bool(data.get('enabled', True)),
+            include_in_budget=bool(data.get('include_in_budget', True)),
+        )
+
+        rule_id = enhanced_db.save_recurring_rule(rule)
+        rule.id = rule_id
+        return jsonify({
+            'success': True,
+            'rule': {
+                'id': rule.id,
+                'ledger_id': rule.ledger_id,
+                'amount': rule.amount,
+                'keyword': rule.keyword,
+                'category_id': rule.category_id,
+                'category': rule.category,
+                'note': rule.note,
+                'schedule_type': rule.schedule_type,
+                'schedule_value': rule.schedule_value,
+                'start_date': rule.start_date,
+                'end_date': rule.end_date,
+                'enabled': rule.enabled,
+                'include_in_budget': rule.include_in_budget,
+                'created_at': rule.created_at,
+                'updated_at': rule.updated_at,
+            }
+        })
+    except ValueError as e:
+        return jsonify({'success': False, 'error': f'Invalid data: {str(e)}'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/recurring-rules/<int:rule_id>', methods=['PUT'])
+def update_recurring_rule(rule_id):
+    """Update a recurring bill rule"""
+    try:
+        init_processors()
+        data = request.get_json()
+        if not data:
+            return jsonify({'success': False, 'error': 'No data provided'}), 400
+
+        rule = enhanced_db.get_recurring_rule(rule_id)
+        if not rule:
+            return jsonify({'success': False, 'error': 'Rule not found'}), 404
+
+        if 'amount' in data:
+            rule.amount = float(data.get('amount') or 0)
+        if 'keyword' in data:
+            rule.keyword = str(data.get('keyword') or '').strip()
+        if 'category' in data:
+            rule.category = str(data.get('category') or '').strip()
+        if 'category_id' in data:
+            rule.category_id = data.get('category_id')
+        if 'note' in data:
+            rule.note = str(data.get('note') or '').strip()
+        if 'schedule_type' in data:
+            rule.schedule_type = str(data.get('schedule_type') or '').strip()
+        if 'schedule_value' in data:
+            rule.schedule_value = data.get('schedule_value')
+        if 'start_date' in data:
+            rule.start_date = str(data.get('start_date') or '').strip()
+        if 'end_date' in data:
+            rule.end_date = str(data.get('end_date') or '').strip() or None
+        if 'enabled' in data:
+            rule.enabled = bool(data.get('enabled'))
+        if 'include_in_budget' in data:
+            rule.include_in_budget = bool(data.get('include_in_budget'))
+
+        if rule.schedule_type not in ('weekly', 'monthly'):
+            return jsonify({'success': False, 'error': 'Invalid schedule_type'}), 400
+        try:
+            rule.schedule_value = _parse_schedule_values(rule.schedule_type, rule.schedule_value)
+        except ValueError as e:
+            return jsonify({'success': False, 'error': str(e)}), 400
+        if not rule.start_date:
+            return jsonify({'success': False, 'error': 'Missing required field: start_date'}), 400
+        if not (rule.category or rule.category_id):
+            return jsonify({'success': False, 'error': 'Missing required field: category'}), 400
+
+        enhanced_db.save_recurring_rule(rule)
+        return jsonify({
+            'success': True,
+            'rule': {
+                'id': rule.id,
+                'ledger_id': rule.ledger_id,
+                'amount': rule.amount,
+                'keyword': rule.keyword,
+                'category_id': rule.category_id,
+                'category': rule.category,
+                'note': rule.note,
+                'schedule_type': rule.schedule_type,
+                'schedule_value': rule.schedule_value,
+                'start_date': rule.start_date,
+                'end_date': rule.end_date,
+                'enabled': rule.enabled,
+                'include_in_budget': rule.include_in_budget,
+                'created_at': rule.created_at,
+                'updated_at': rule.updated_at,
+            }
+        })
+    except ValueError as e:
+        return jsonify({'success': False, 'error': f'Invalid data: {str(e)}'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/recurring-rules/<int:rule_id>', methods=['DELETE'])
+def delete_recurring_rule(rule_id):
+    """Delete a recurring bill rule"""
+    try:
+        init_processors()
+        deleted = enhanced_db.delete_recurring_rule(rule_id)
+        if deleted:
+            return jsonify({'success': True, 'message': 'Recurring rule deleted successfully'})
+        return jsonify({'success': False, 'error': 'Rule not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.errorhandler(413)
 def too_large(e):

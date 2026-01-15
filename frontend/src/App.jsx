@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Button,
   Card,
-  Checkbox,
   Col,
   DatePicker,
   Divider,
@@ -15,9 +14,9 @@ import {
   Select,
   Space,
   Statistic,
+  Switch,
   Table,
   Tabs,
-  Tag,
   Typography,
   Upload,
   message,
@@ -41,7 +40,11 @@ const { RangePicker } = DatePicker
 const I18N = {
     appTitle: '账单助手 - React',
     appSubtitle: '上传识别、消费分析、分类配置',
-    tabs: ['财务看板', '上传识别', '消费分析', '分类与规则'],
+    tabs: ['财务看板', '上传识别', '消费分析', '设置'],
+    settings: {
+      categories: '分类与规则',
+      ledger: '账本',
+    },
     ledger: {
       label: '账本',
       section: '账本',
@@ -82,6 +85,7 @@ const I18N = {
       count: '笔数',
       daysCovered: '覆盖天数',
       dailyAvg: '日均',
+      includeInBudget: '计入预算',
       headers: ['日期', '商户', '分类', '金额'],
       prev: '上一页',
       next: '下一页',
@@ -99,11 +103,41 @@ const I18N = {
       keyword: '关键词',
       category: '分类',
       priority: '优先级',
-      weakMatch: '弱匹配',
       addRule: '添加规则',
       action: '操作',
       delete: '删除',
       tableHeaders: ['关键词', '分类', '优先级', '操作'],
+      createButton: '新增',
+      manageButton: '查看修改',
+      createCategoryTitle: '新增分类',
+      manageCategoryTitle: '查看修改分类',
+      createRuleTitle: '新增规则',
+      manageRuleTitle: '查看修改规则',
+      filterKeyword: '关键词',
+      filterMajor: '大类',
+      filterMinor: '小类',
+    },
+    recurring: {
+      title: '周期性账单',
+      amount: '金额',
+      keyword: '关键词',
+      category: '分类',
+      note: '备注',
+      scheduleType: '循环方式',
+      scheduleWeekly: '每周',
+      scheduleMonthly: '每月',
+      weekday: '星期',
+      monthDay: '日期',
+      scheduleValue: '日期/星期',
+      startDate: '开始日期',
+      endDate: '结束日期',
+      enabled: '启用',
+      includeInBudget: '计入预算',
+      add: '新增规则',
+      createTitle: '新增周期性账单',
+      manageTitle: '查看修改周期性账单',
+      createButton: '新增',
+      manageButton: '查看修改',
     },
     toasts: {
       loadLedgersFail: '加载账本失败',
@@ -118,10 +152,12 @@ const I18N = {
       loadCategoriesFail: '加载分类失败',
       loadRulesFail: '加载规则失败',
       categoryAdded: '分类已添加',
+      categoryUpdated: '分类已更新',
       categoryAddFail: '添加分类失败',
       categoryDeleted: '分类已删除',
       categoryDeleteFail: '删除分类失败',
       ruleAdded: '规则已添加',
+      ruleUpdated: '规则已更新',
       ruleAddFail: '添加规则失败',
       ruleDeleted: '规则已删除',
       ruleDeleteFail: '删除规则失败',
@@ -133,10 +169,18 @@ const I18N = {
       saveFail: '保存失败',
       saveDone: '已保存',
       refreshFail: '刷新失败',
+      loadRecurringFail: '加载周期性规则失败',
+      recurringAdded: '周期性规则已添加',
+      recurringAddFail: '添加周期性规则失败',
+      recurringUpdated: '周期性规则已更新',
+      recurringUpdateFail: '更新周期性规则失败',
+      recurringDeleted: '周期性规则已删除',
+      recurringDeleteFail: '删除周期性规则失败',
     },
     confirm: {
       deleteCategory: '删除该分类？',
       deleteRule: '删除该规则？',
+      deleteRecurring: '删除该周期性规则？',
     },
   }
 
@@ -147,6 +191,12 @@ const buildQuery = (params) =>
 const numberOrZero = (val) => {
   const n = Number(val)
   return Number.isNaN(n) ? 0 : n
+}
+
+const normalizeSortOrder = (order) => {
+  if (order === 'ascend') return 'asc'
+  if (order === 'descend') return 'desc'
+  return ''
 }
 
 const fileKey = (file) => `${file.name}|${file.size}|${file.lastModified}`
@@ -160,6 +210,7 @@ function App() {
 
   const [categories, setCategories] = useState([])
   const [rules, setRules] = useState([])
+  const [recurringRules, setRecurringRules] = useState([])
 
   const [selectedFiles, setSelectedFiles] = useState([])
   const [uploadDate, setUploadDate] = useState(today())
@@ -178,7 +229,20 @@ function App() {
   const [analyticsItems, setAnalyticsItems] = useState([])
   const [analyticsTotal, setAnalyticsTotal] = useState(0)
   const [analyticsPage, setAnalyticsPage] = useState(1)
+  const [analyticsSort, setAnalyticsSort] = useState({ field: '', order: '' })
   const pageSize = 20
+  const [billEditOpen, setBillEditOpen] = useState(false)
+  const [billEditForm, setBillEditForm] = useState({
+    id: null,
+    merchant: '',
+    amount: 0,
+    major: '',
+    minor: '',
+    category_id: null,
+    category: '',
+    bill_date: '',
+    include_in_budget: true,
+  })
 
   // Dashboard refresh trigger
   const [dashboardRefreshTrigger, setDashboardRefreshTrigger] = useState(null)
@@ -186,11 +250,36 @@ function App() {
   const [catForm, setCatForm] = useState({ major: '', minor: '', scope: 'current' })
   const [ruleForm, setRuleForm] = useState({
     keyword: '',
+    major: '',
+    minor: '',
     category: '',
-    priority: 1,
-    is_weak: false,
+    category_id: null,
+    priority: 2,
     scope: 'current',
   })
+
+  const [recurringForm, setRecurringForm] = useState({
+    amount: '',
+    keyword: '',
+    category_id: null,
+    category: '',
+    note: '',
+    schedule_type: 'weekly',
+    schedule_value: [1],
+    start_date: today(),
+    end_date: '',
+    enabled: true,
+    include_in_budget: true,
+  })
+
+  const [recurringCreateOpen, setRecurringCreateOpen] = useState(false)
+  const [recurringManageOpen, setRecurringManageOpen] = useState(false)
+  const [categoryCreateOpen, setCategoryCreateOpen] = useState(false)
+  const [categoryManageOpen, setCategoryManageOpen] = useState(false)
+  const [ruleCreateOpen, setRuleCreateOpen] = useState(false)
+  const [ruleManageOpen, setRuleManageOpen] = useState(false)
+  const [categoryFilter, setCategoryFilter] = useState({ keyword: '', major: '', minor: '' })
+  const [ruleFilter, setRuleFilter] = useState({ keyword: '', major: '', minor: '' })
 
   const [messageApi, contextHolder] = message.useMessage()
 
@@ -234,6 +323,7 @@ function App() {
     if (currentLedgerId !== null) {
       loadCategories()
       loadRules()
+      loadRecurringRules()
       refreshAnalytics(1)
     }
   }, [currentLedgerId])
@@ -265,6 +355,73 @@ function App() {
     if (!analyticsFilters.major) return categories
     return categories.filter((c) => c.major === analyticsFilters.major)
   }, [categories, analyticsFilters.major])
+
+  const ruleMajorOptions = useMemo(
+    () => Array.from(new Set(categories.map((c) => c.major))).filter(Boolean),
+    [categories],
+  )
+
+  const ruleMinorOptions = useMemo(() => {
+    if (!ruleForm.major) return []
+    return categories.filter((c) => c.major === ruleForm.major)
+  }, [categories, ruleForm.major])
+
+  const weekdayOptions = [
+    { label: '周一', value: 1 },
+    { label: '周二', value: 2 },
+    { label: '周三', value: 3 },
+    { label: '周四', value: 4 },
+    { label: '周五', value: 5 },
+    { label: '周六', value: 6 },
+    { label: '周日', value: 7 },
+  ]
+
+  const monthDayOptions = useMemo(
+    () => Array.from({ length: 31 }, (_, idx) => ({ label: `${idx + 1}日`, value: idx + 1 })),
+    [],
+  )
+
+  const categoryFilterMinorOptions = useMemo(() => {
+    if (!categoryFilter.major) return categories
+    return categories.filter((c) => c.major === categoryFilter.major)
+  }, [categories, categoryFilter.major])
+
+  const categoryFiltered = useMemo(() => {
+    const keyword = categoryFilter.keyword.trim().toLowerCase()
+    return categories.filter((c) => {
+      if (categoryFilter.major && c.major !== categoryFilter.major) return false
+      if (categoryFilter.minor && c.minor !== categoryFilter.minor) return false
+      if (!keyword) return true
+      const text = `${c.major || ''}/${c.minor || ''}`.toLowerCase()
+      return text.includes(keyword)
+    })
+  }, [categories, categoryFilter])
+
+  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
+
+  const ruleFilterMinorOptions = useMemo(() => {
+    if (!ruleFilter.major) return categories
+    return categories.filter((c) => c.major === ruleFilter.major)
+  }, [categories, ruleFilter.major])
+
+  const rulesFiltered = useMemo(() => {
+    const keyword = ruleFilter.keyword.trim().toLowerCase()
+    return rules.filter((r) => {
+      const cat = categoryById.get(r.category_id)
+      const major = cat?.major || (r.category || '').split('/')[0] || ''
+      const minor = cat?.minor || (r.category || '').split('/')[1] || ''
+      if (ruleFilter.major && major !== ruleFilter.major) return false
+      if (ruleFilter.minor && minor !== ruleFilter.minor) return false
+      if (!keyword) return true
+      const text = `${r.keyword || ''} ${r.category || ''}`.toLowerCase()
+      return text.includes(keyword)
+    })
+  }, [rules, ruleFilter, categoryById])
+
+  const billEditMinorOptions = useMemo(() => {
+    if (!billEditForm.major) return categories
+    return categories.filter((c) => c.major === billEditForm.major)
+  }, [categories, billEditForm.major])
 
   const loadLedgers = async () => {
     try {
@@ -345,7 +502,7 @@ function App() {
     Modal.confirm({
       title: t('ledger.deleteConfirm'),
       okText: t('ledger.delete'),
-      cancelText: 'ȡ��',
+      cancelText: '取消',
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
@@ -395,10 +552,32 @@ function App() {
     }
   }
 
+  const loadRecurringRules = async () => {
+    if (currentLedgerId === null) {
+      return
+    }
+    try {
+      const res = await fetch(`/api/recurring-rules?${buildQuery(withLedgerParams({}))}`)
+      const data = await res.json()
+      if (data.success) {
+        const normalized = (data.rules || []).map((rule) => ({
+          ...rule,
+          schedule_value: normalizeScheduleValues(rule.schedule_type, rule.schedule_value),
+          include_in_budget: rule.include_in_budget !== false,
+        }))
+        setRecurringRules(normalized)
+      } else {
+        pushToast(data.error || t('toasts.loadRecurringFail'), 'error')
+      }
+    } catch {
+      pushToast(t('toasts.loadRecurringFail'), 'error')
+    }
+  }
+
   const addCategoryGroup = async () => {
     if (!catForm.major.trim()) {
       pushToast(t('toasts.categoryAddFail'), 'warn')
-      return
+      return false
     }
     try {
       const payload = {
@@ -416,12 +595,14 @@ function App() {
         pushToast(t('toasts.categoryAdded'), 'success')
         setCatForm({ major: '', minor: '', scope: catForm.scope })
         loadCategories()
+        return true
       } else {
         pushToast(data.error || t('toasts.categoryAddFail'), 'error')
       }
     } catch {
       pushToast(t('toasts.categoryAddFail'), 'error')
     }
+    return false
   }
 
   const deleteCategory = (id) => {
@@ -446,16 +627,21 @@ function App() {
   }
 
   const addRule = async () => {
-    if (!ruleForm.keyword.trim() || !ruleForm.category) {
+    const categoryRecord =
+      (ruleForm.category_id && categories.find((c) => c.id === ruleForm.category_id)) ||
+      categories.find((c) => c.full_name === ruleForm.category)
+    const categoryName = categoryRecord?.full_name || ruleForm.category
+    const categoryId = ruleForm.category_id ?? categoryRecord?.id ?? null
+    if (!ruleForm.keyword.trim() || !categoryName) {
       pushToast(t('toasts.ruleAddFail'), 'warn')
-      return
+      return false
     }
     try {
       const payload = {
         keyword: ruleForm.keyword.trim(),
-        category: ruleForm.category,
-        priority: Number(ruleForm.priority) || 1,
-        is_weak: !!ruleForm.is_weak,
+        category: categoryName,
+        category_id: categoryId,
+        priority: Number(ruleForm.priority) || 2,
         ledger_id: ruleForm.scope === 'global' ? null : currentLedgerId,
       }
       const res = await fetch('/api/config/categories', {
@@ -466,14 +652,24 @@ function App() {
       const data = await res.json()
       if (data.success) {
         pushToast(t('toasts.ruleAdded'), 'success')
-        setRuleForm({ keyword: '', category: '', priority: 1, is_weak: false, scope: ruleForm.scope })
+        setRuleForm({
+          keyword: '',
+          major: '',
+          minor: '',
+          category: '',
+          category_id: null,
+          priority: 2,
+          scope: ruleForm.scope,
+        })
         loadRules()
+        return true
       } else {
         pushToast(data.error || t('toasts.ruleAddFail'), 'error')
       }
     } catch {
       pushToast(t('toasts.ruleAddFail'), 'error')
     }
+    return false
   }
 
   const deleteRule = (id) => {
@@ -492,6 +688,308 @@ function App() {
           }
         } catch {
           pushToast(t('toasts.ruleDeleteFail'), 'error')
+        }
+      },
+    })
+  }
+
+
+  const updateCategoryField = (id, field, value) => {
+    setCategories((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+    )
+  }
+
+  const saveCategoryGroup = async (record) => {
+    const major = String(record.major || '').trim()
+    const minor = String(record.minor || '').trim()
+    if (!major) {
+      pushToast(t('toasts.categoryAddFail'), 'warn')
+      return
+    }
+    try {
+      const res = await fetch(
+        `/api/config/category-groups/${record.id}?${buildQuery(withLedgerParams({}))}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ major, minor }),
+        },
+      )
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.categoryUpdated'), 'success')
+        loadCategories()
+        loadRules()
+      } else {
+        pushToast(data.error || t('toasts.categoryAddFail'), 'error')
+      }
+    } catch {
+      pushToast(t('toasts.categoryAddFail'), 'error')
+    }
+  }
+
+  const updateRuleField = (id, field, value) => {
+    setRules((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+    )
+  }
+
+  const handleRuleMajorChange = (value) => {
+    setRuleForm((prev) => ({
+      ...prev,
+      major: value || '',
+      minor: '',
+      category: '',
+      category_id: null,
+    }))
+  }
+
+  const handleRuleMinorChange = (value) => {
+    const match = categories.find((c) => c.id === value)
+    setRuleForm((prev) => ({
+      ...prev,
+      minor: match?.minor || '',
+      category: match?.full_name || '',
+      category_id: match ? match.id : null,
+    }))
+  }
+
+  const handleRuleCategoryChange = (id, value) => {
+    const match = categories.find((c) => c.full_name === value)
+    updateRuleField(id, 'category', value || '')
+    updateRuleField(id, 'category_id', match ? match.id : null)
+  }
+
+  const saveRule = async (record) => {
+    const keyword = String(record.keyword || '').trim()
+    const category = String(record.category || '').trim()
+    const priority = Number(record.priority) || 2
+    if (!keyword || !category) {
+      pushToast(t('toasts.ruleAddFail'), 'warn')
+      return
+    }
+    try {
+      const res = await fetch(`/api/config/categories/${record.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keyword,
+          category,
+          category_id: record.category_id,
+          priority,
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.ruleUpdated'), 'success')
+        loadRules()
+      } else {
+        pushToast(data.error || t('toasts.ruleAddFail'), 'error')
+      }
+    } catch {
+      pushToast(t('toasts.ruleAddFail'), 'error')
+    }
+  }
+
+  const normalizeScheduleValues = (type, value) => {
+    const values = Array.isArray(value) ? value : value !== undefined && value !== null ? [value] : []
+    const limit = type === 'weekly' ? 7 : 31
+    const normalized = values
+      .map((v) => Number(v))
+      .filter((v) => Number.isFinite(v) && v >= 1 && v <= limit)
+    return Array.from(new Set(normalized)).sort((a, b) => a - b)
+  }
+
+  const handleRecurringCategoryChange = (value) => {
+    const match = categories.find((c) => c.id === value)
+    setRecurringForm((prev) => ({
+      ...prev,
+      category_id: value || null,
+      category: match ? match.full_name : '',
+    }))
+  }
+
+  const handleRecurringScheduleTypeChange = (value) => {
+    setRecurringForm((prev) => ({
+      ...prev,
+      schedule_type: value,
+      schedule_value: normalizeScheduleValues(value, prev.schedule_value).length
+        ? normalizeScheduleValues(value, prev.schedule_value)
+        : [1],
+    }))
+  }
+
+  const handleRecurringStartDateChange = (date) => {
+    const start = date ? date.format('YYYY-MM-DD') : ''
+    setRecurringForm((prev) => ({
+      ...prev,
+      start_date: start,
+      end_date: prev.end_date && start && prev.end_date < start ? start : prev.end_date,
+    }))
+  }
+
+  const updateRecurringRuleField = (id, field, value) => {
+    setRecurringRules((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+    )
+  }
+
+  const handleRecurringRuleCategoryChange = (id, value) => {
+    const match = categories.find((c) => c.id === value)
+    setRecurringRules((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, category_id: value || null, category: match ? match.full_name : '' }
+          : item,
+      ),
+    )
+  }
+
+  const handleRecurringRuleScheduleTypeChange = (id, value) => {
+    setRecurringRules((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item
+        const normalized = normalizeScheduleValues(value, item.schedule_value)
+        return {
+          ...item,
+          schedule_type: value,
+          schedule_value: normalized.length ? normalized : [1],
+        }
+      }),
+    )
+  }
+
+  const handleRecurringRuleStartDateChange = (id, date) => {
+    const start = date ? date.format('YYYY-MM-DD') : ''
+    setRecurringRules((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? {
+              ...item,
+              start_date: start,
+              end_date: item.end_date && start && item.end_date < start ? start : item.end_date,
+            }
+          : item,
+      ),
+    )
+  }
+
+  const addRecurringRule = async () => {
+    if (!recurringForm.category_id && !recurringForm.category) {
+      pushToast(t('toasts.recurringAddFail'), 'warn')
+      return false
+    }
+    if (!recurringForm.start_date) {
+      pushToast(t('toasts.recurringAddFail'), 'warn')
+      return false
+    }
+    const scheduleValues = normalizeScheduleValues(recurringForm.schedule_type, recurringForm.schedule_value)
+    if (!scheduleValues.length) {
+      pushToast(t('toasts.recurringAddFail'), 'warn')
+      return false
+    }
+    const payload = {
+      amount: numberOrZero(recurringForm.amount),
+      keyword: recurringForm.keyword,
+      category_id: recurringForm.category_id,
+      category: recurringForm.category,
+      note: recurringForm.note,
+      schedule_type: recurringForm.schedule_type,
+      schedule_value: scheduleValues,
+      start_date: recurringForm.start_date,
+      end_date: recurringForm.end_date || null,
+      enabled: recurringForm.enabled,
+      include_in_budget: recurringForm.include_in_budget,
+      ledger_id: currentLedgerId,
+    }
+    try {
+      const res = await fetch('/api/recurring-rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.recurringAdded'), 'success')
+        setRecurringForm({
+          amount: '',
+          keyword: '',
+          category_id: null,
+          category: '',
+          note: '',
+          schedule_type: 'weekly',
+          schedule_value: [1],
+          start_date: today(),
+          end_date: '',
+          enabled: true,
+          include_in_budget: true,
+        })
+        loadRecurringRules()
+        return true
+      } else {
+        pushToast(data.error || t('toasts.recurringAddFail'), 'error')
+        return false
+      }
+    } catch {
+      pushToast(t('toasts.recurringAddFail'), 'error')
+    }
+    return false
+  }
+
+  const saveRecurringRule = async (record) => {
+    const scheduleValues = normalizeScheduleValues(record.schedule_type, record.schedule_value)
+    if (!scheduleValues.length) {
+      pushToast(t('toasts.recurringUpdateFail'), 'warn')
+      return
+    }
+    const payload = {
+      amount: numberOrZero(record.amount),
+      keyword: record.keyword,
+      category_id: record.category_id,
+      category: record.category,
+      note: record.note,
+      schedule_type: record.schedule_type,
+      schedule_value: scheduleValues,
+      start_date: record.start_date,
+      end_date: record.end_date || null,
+      enabled: record.enabled,
+      include_in_budget: record.include_in_budget,
+    }
+    try {
+      const res = await fetch(`/api/recurring-rules/${record.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.recurringUpdated'), 'success')
+        loadRecurringRules()
+      } else {
+        pushToast(data.error || t('toasts.recurringUpdateFail'), 'error')
+      }
+    } catch {
+      pushToast(t('toasts.recurringUpdateFail'), 'error')
+    }
+  }
+
+  const deleteRecurringRule = (id) => {
+    Modal.confirm({
+      title: t('confirm.deleteRecurring'),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const res = await fetch(`/api/recurring-rules/${id}`, { method: 'DELETE' })
+          const data = await res.json()
+          if (data.success) {
+            pushToast(t('toasts.recurringDeleted'), 'success')
+            loadRecurringRules()
+          } else {
+            pushToast(data.error || t('toasts.recurringDeleteFail'), 'error')
+          }
+        } catch {
+          pushToast(t('toasts.recurringDeleteFail'), 'error')
         }
       },
     })
@@ -630,12 +1128,17 @@ function App() {
     }
   }
 
-  const refreshAnalytics = async (page = analyticsPage, filtersOverride = null) => {
+  const refreshAnalytics = async (page = analyticsPage, filtersOverride = null, sortOverride = null) => {
     if (currentLedgerId === null) {
       return
     }
     setAnalyticsPage(page)
-    const params = withLedgerParams(filtersOverride || analyticsFilters)
+    const sortState = sortOverride || analyticsSort
+    const sortParams =
+      sortState && sortState.field && sortState.order
+        ? { sort_by: sortState.field, sort_order: normalizeSortOrder(sortState.order) }
+        : {}
+    const params = withLedgerParams({ ...(filtersOverride || analyticsFilters), ...sortParams })
     try {
       const [summaryRes, billsRes] = await Promise.all([
         fetch(`/api/analytics/summary?${buildQuery(params)}`),
@@ -701,6 +1204,79 @@ function App() {
     setAnalyticsFilters(nextFilters)
     setAnalyticsPage(1)
     refreshAnalytics(1, nextFilters)
+  }
+
+  const openBillEdit = (record) => {
+    const match = categories.find((c) => c.id === record.category_id)
+    let major = match?.major || ''
+    let minor = match?.minor || ''
+    if (!match && record.category) {
+      const parts = record.category.split('/')
+      major = parts[0] || ''
+      minor = parts[1] || ''
+    }
+    setBillEditForm({
+      id: record.id,
+      merchant: record.merchant || '',
+      amount: Number(record.amount || 0),
+      major,
+      minor,
+      category_id: record.category_id ?? null,
+      category: record.category || '',
+      bill_date: record.bill_date || '',
+      include_in_budget: record.include_in_budget !== false,
+    })
+    setBillEditOpen(true)
+  }
+
+  const handleBillEditMajorChange = (value) => {
+    setBillEditForm((prev) => ({
+      ...prev,
+      major: value || '',
+      minor: '',
+      category_id: null,
+      category: '',
+    }))
+  }
+
+  const handleBillEditMinorChange = (value) => {
+    const match = categories.find((c) => c.id === value)
+    setBillEditForm((prev) => ({
+      ...prev,
+      category_id: value || null,
+      category: match ? match.full_name : '',
+      major: match ? match.major : prev.major,
+      minor: match ? match.minor : '',
+    }))
+  }
+
+  const saveBillEdit = async () => {
+    if (!billEditForm.id) return
+    const payload = {
+      merchant: billEditForm.merchant,
+      amount: Number(billEditForm.amount || 0),
+      category_id: billEditForm.category_id,
+      category: billEditForm.category,
+      bill_date: billEditForm.bill_date,
+      include_in_budget: billEditForm.include_in_budget,
+    }
+    try {
+      const res = await fetch(`/api/bills/${billEditForm.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.saveDone'), 'success')
+        setBillEditOpen(false)
+        refreshAnalytics(analyticsPage)
+      } else {
+        pushToast(data.error || t('toasts.saveFail'), 'error')
+      }
+    } catch {
+      pushToast(t('toasts.saveFail'), 'error')
+    }
   }
 
   const scrollToBottom = () => {
@@ -771,55 +1347,328 @@ function App() {
   ]
 
   const analyticsColumns = [
-    { title: t('analytics.headers')[0], dataIndex: 'bill_date', key: 'bill_date', width: 140 },
-    { title: t('analytics.headers')[1], dataIndex: 'merchant', key: 'merchant' },
-    { title: t('analytics.headers')[2], dataIndex: 'category', key: 'category', width: 160 },
+    {
+      title: t('analytics.headers')[0],
+      dataIndex: 'bill_date',
+      key: 'bill_date',
+      width: 140,
+      sorter: true,
+      sortOrder:
+        analyticsSort.field === 'bill_date' && analyticsSort.order ? analyticsSort.order : null,
+    },
+    {
+      title: t('analytics.headers')[1],
+      dataIndex: 'merchant',
+      key: 'merchant',
+      sorter: true,
+      sortOrder:
+        analyticsSort.field === 'merchant' && analyticsSort.order ? analyticsSort.order : null,
+      render: (value, record) =>
+        `${value || ''}${record.include_in_budget === false ? '*' : ''}`,
+    },
+    {
+      title: t('analytics.headers')[2],
+      dataIndex: 'category',
+      key: 'category',
+      width: 160,
+      sorter: true,
+      sortOrder:
+        analyticsSort.field === 'category' && analyticsSort.order ? analyticsSort.order : null,
+    },
     {
       title: t('analytics.headers')[3],
       dataIndex: 'amount',
       key: 'amount',
       width: 120,
       align: 'right',
+      sorter: true,
+      sortOrder:
+        analyticsSort.field === 'amount' && analyticsSort.order ? analyticsSort.order : null,
       render: (value) => `${currency} ${Number(value).toFixed(2)}`,
     },
   ]
 
-  const rulesColumns = [
-    { title: t('config.tableHeaders')[0], dataIndex: 'keyword', key: 'keyword' },
-    { title: t('config.tableHeaders')[1], dataIndex: 'category', key: 'category' },
-    { title: t('config.tableHeaders')[2], dataIndex: 'priority', key: 'priority', width: 100 },
+  const categoryColumns = [
     {
-      title: t('config.tableHeaders')[3],
+      title: t('config.major'),
+      dataIndex: 'major',
+      key: 'major',
+      render: (_, record) => (
+        <Input value={record.major} onChange={(e) => updateCategoryField(record.id, 'major', e.target.value)} />
+      ),
+    },
+    {
+      title: t('config.minor'),
+      dataIndex: 'minor',
+      key: 'minor',
+      render: (_, record) => (
+        <Input value={record.minor} onChange={(e) => updateCategoryField(record.id, 'minor', e.target.value)} />
+      ),
+    },
+    {
+      title: t('config.action'),
+      key: 'action',
+      width: 140,
+      render: (_, record) => (
+        <Space>
+          <Button type="link" icon={<SaveOutlined />} onClick={() => saveCategoryGroup(record)}>
+            {t('ledger.save')}
+          </Button>
+          <Button danger type="link" icon={<DeleteOutlined />} onClick={() => deleteCategory(record.id)}>
+            {t('config.delete')}
+          </Button>
+        </Space>
+      ),
+    },
+  ]
+
+  const rulesColumns = [
+    {
+      title: t('config.tableHeaders')[0],
+      dataIndex: 'keyword',
+      key: 'keyword',
+      render: (_, record) => (
+        <Input
+          value={record.keyword}
+          onChange={(e) => updateRuleField(record.id, 'keyword', e.target.value)}
+        />
+      ),
+    },
+    {
+      title: t('config.tableHeaders')[1],
+      dataIndex: 'category',
+      key: 'category',
+      render: (_, record) => (
+        <Select
+          value={record.category || undefined}
+          placeholder={t('config.category')}
+          onChange={(value) => handleRuleCategoryChange(record.id, value)}
+          allowClear
+        >
+          {categories.map((c) => (
+            <Select.Option key={c.id} value={c.full_name}>
+              {c.full_name}
+            </Select.Option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      title: t('config.tableHeaders')[2],
+      dataIndex: 'priority',
+      key: 'priority',
+      width: 120,
+      render: (_, record) => (
+        <InputNumber
+          min={1}
+          value={record.priority}
+          onChange={(value) => updateRuleField(record.id, 'priority', value)}
+          style={{ width: '100%' }}
+        />
+      ),
+    },
+    {
+      title: t('config.action'),
+      key: 'action',
+      width: 140,
+      render: (_, record) => (
+        <Space>
+          <Button type="link" icon={<SaveOutlined />} onClick={() => saveRule(record)}>
+            {t('ledger.save')}
+          </Button>
+          <Button danger type="link" icon={<DeleteOutlined />} onClick={() => deleteRule(record.id)}>
+            {t('config.delete')}
+          </Button>
+        </Space>
+      ),
+    },
+  ]
+
+  const recurringColumns = [
+    {
+      title: t('recurring.amount'),
+      dataIndex: 'amount',
+      key: 'amount',
+      width: 120,
+      render: (_, record) => (
+        <InputNumber
+          min={0}
+          value={record.amount}
+          onChange={(value) => updateRecurringRuleField(record.id, 'amount', value)}
+          onBlur={() => saveRecurringRule(record)}
+          style={{ width: '100%' }}
+        />
+      ),
+    },
+    {
+      title: t('recurring.keyword'),
+      dataIndex: 'keyword',
+      key: 'keyword',
+      width: 160,
+      render: (_, record) => (
+        <Input
+          value={record.keyword}
+          onChange={(e) => updateRecurringRuleField(record.id, 'keyword', e.target.value)}
+          onBlur={() => saveRecurringRule(record)}
+        />
+      ),
+    },
+    {
+      title: t('recurring.category'),
+      dataIndex: 'category_id',
+      key: 'category',
+      width: 180,
+      render: (_, record) => (
+        <Select
+          value={record.category_id ?? undefined}
+          placeholder={record.category || t('recurring.category')}
+          onChange={(value) => handleRecurringRuleCategoryChange(record.id, value)}
+          onBlur={() => saveRecurringRule(record)}
+          allowClear
+        >
+          {categories.map((c) => (
+            <Select.Option key={c.id} value={c.id}>
+              {c.full_name}
+            </Select.Option>
+          ))}
+        </Select>
+      ),
+    },
+    {
+      title: t('recurring.scheduleType'),
+      dataIndex: 'schedule_type',
+      key: 'schedule_type',
+      width: 140,
+      render: (_, record) => (
+        <Select
+          value={record.schedule_type}
+          onChange={(value) => handleRecurringRuleScheduleTypeChange(record.id, value)}
+          onBlur={() => saveRecurringRule(record)}
+        >
+          <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
+          <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
+        </Select>
+      ),
+    },
+    {
+      title: t('recurring.scheduleValue'),
+      dataIndex: 'schedule_value',
+      key: 'schedule_value',
+      width: 285,
+      render: (_, record) => (
+        <Select
+          mode="multiple"
+          value={Array.isArray(record.schedule_value) ? record.schedule_value : []}
+          onChange={(value) => updateRecurringRuleField(record.id, 'schedule_value', value)}
+          onBlur={() => saveRecurringRule(record)}
+          options={record.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions}
+        />
+      ),
+    },
+    {
+      title: t('recurring.startDate'),
+      dataIndex: 'start_date',
+      key: 'start_date',
+      width: 295,
+      render: (_, record) => (
+        <DatePicker
+          value={record.start_date ? moment(record.start_date, 'YYYY-MM-DD') : null}
+          onChange={(date) => handleRecurringRuleStartDateChange(record.id, date)}
+          onBlur={() => saveRecurringRule(record)}
+          style={{ width: '100%' }}
+        />
+      ),
+    },
+    {
+      title: t('recurring.endDate'),
+      dataIndex: 'end_date',
+      key: 'end_date',
+      width: 295,
+      render: (_, record) => (
+        <DatePicker
+          allowClear
+          value={record.end_date ? moment(record.end_date, 'YYYY-MM-DD') : null}
+          onChange={(date) =>
+            updateRecurringRuleField(record.id, 'end_date', date ? date.format('YYYY-MM-DD') : '')
+          }
+          onBlur={() => saveRecurringRule(record)}
+          style={{ width: '100%' }}
+        />
+      ),
+    },
+    {
+      title: t('recurring.note'),
+      dataIndex: 'note',
+      key: 'note',
+      width: 240,
+      render: (_, record) => (
+        <Input
+          value={record.note}
+          onChange={(e) => updateRecurringRuleField(record.id, 'note', e.target.value)}
+          onBlur={() => saveRecurringRule(record)}
+        />
+      ),
+    },
+    {
+      title: t('recurring.includeInBudget'),
+      dataIndex: 'include_in_budget',
+      key: 'include_in_budget',
+      width: 120,
+      render: (_, record) => (
+        <Switch
+          checked={record.include_in_budget !== false}
+          onChange={(checked) => {
+            updateRecurringRuleField(record.id, 'include_in_budget', checked)
+            saveRecurringRule({ ...record, include_in_budget: checked })
+          }}
+        />
+      ),
+    },
+    {
+      title: t('recurring.enabled'),
+      dataIndex: 'enabled',
+      key: 'enabled',
+      width: 100,
+      render: (_, record) => (
+        <Switch
+          checked={Boolean(record.enabled)}
+          onChange={(checked) => {
+            updateRecurringRuleField(record.id, 'enabled', checked)
+            saveRecurringRule({ ...record, enabled: checked })
+          }}
+        />
+      ),
+    },
+    {
+      title: t('config.action'),
       key: 'action',
       width: 100,
       render: (_, record) => (
-        <Button danger type="link" onClick={() => deleteRule(record.id)} icon={<DeleteOutlined />}>
+        <Button danger type="link" icon={<DeleteOutlined />} onClick={() => deleteRecurringRule(record.id)}>
           {t('config.delete')}
         </Button>
       ),
     },
   ]
 
-  const groupedCategories = useMemo(() => {
-    return categories.reduce((acc, c) => {
-      acc[c.major] = acc[c.major] || []
-      acc[c.major].push(c)
-      return acc
-    }, {})
-  }, [categories])
-
   const uploadFileList = useMemo(
+
     () => selectedFiles.map((file) => ({ uid: fileKey(file), name: file.name, status: 'done' })),
     [selectedFiles],
   )
 
   return (
-    <Layout className="app" style={{
-    background:
-      "radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.08), transparent 25%)," +
-      "radial-gradient(circle at 80% 0%, rgba(14, 165, 233, 0.08), transparent 25%)," +
-      "#f3f4f6"
-  }}>
+    <Layout
+      className="app"
+      style={{
+        background: `
+          radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.08), transparent 25%),
+          radial-gradient(circle at 80% 0%, rgba(14, 165, 233, 0.08), transparent 25%),
+          #f3f4f6
+        `,
+        padding: '5%',
+      }}
+    >
       {contextHolder}
       <Layout.Content>
         <div className="app-header">
@@ -853,132 +1702,81 @@ function App() {
 
           <Tabs.TabPane tab={t('tabs.1')} key="upload">
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
-              <Card title={t('ledger.section')}>
-                <Row gutter={16}>
-                  <Col xs={24} md={12}>
-                    <Form layout="vertical">
-                      <Form.Item label={t('ledger.name')}>
-                        <Input value={ledgerForm.name} onChange={(e) => setLedgerForm({ ...ledgerForm, name: e.target.value })} />
-                      </Form.Item>
-                      <Form.Item label={t('ledger.budget')}>
-                        <InputNumber
-                          min={0}
-                          value={ledgerForm.monthly_budget}
-                          onChange={(value) => setLedgerForm({ ...ledgerForm, monthly_budget: value })}
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-                      <Space>
-                        <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
-                          {t('ledger.save')}
-                        </Button>
-                        <Button danger onClick={deleteLedger}>
-                          {t('ledger.delete')}
-                        </Button>
-                      </Space>
-                    </Form>
-                  </Col>
-                  <Col xs={24} md={12}>
-                    <Form layout="vertical">
-                      <Form.Item label={t('ledger.newLedger')}>
-                        <Input value={newLedger.name} onChange={(e) => setNewLedger({ ...newLedger, name: e.target.value })} />
-                      </Form.Item>
-                      <Form.Item label={t('ledger.budget')}>
-                        <InputNumber
-                          min={0}
-                          value={newLedger.monthly_budget}
-                          onChange={(value) => setNewLedger({ ...newLedger, monthly_budget: value })}
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-                      <Button type="dashed" icon={<PlusOutlined />} onClick={createLedger}>
-                        {t('ledger.create')}
-                      </Button>
-                    </Form>
-                  </Col>
-                </Row>
-              </Card>
+              
 
-              <Row gutter={16}>
-                <Col xs={24} lg={12}>
-                  <Card title={t('upload.title')}>
-                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                      <Upload.Dragger
-                        multiple
-                        beforeUpload={() => false}
-                        fileList={uploadFileList}
-                        onChange={({ fileList }) =>
-                          handleFileInput(fileList.map((file) => file.originFileObj).filter(Boolean))
-                        }
-                        onRemove={(file) => {
-                          setSelectedFiles((prev) => prev.filter((f) => fileKey(f) !== file.uid))
-                        }}
-                      >
-                        <p className="ant-upload-drag-icon">
-                          <InboxOutlined />
-                        </p>
-                        <p className="ant-upload-text">{t('upload.drop')}</p>
-                        <p className="ant-upload-hint">{t('upload.choose')}</p>
-                      </Upload.Dragger>
-
-                      <Space size="middle" align="center" wrap>
-                        <Text>{t('upload.billDate')}</Text>
-                        <DatePicker
-                          value={uploadDate ? moment(uploadDate, 'YYYY-MM-DD') : null}
-                          onChange={(date) => setUploadDate(date ? date.format('YYYY-MM-DD') : today())}
-                        />
-                        <Button onClick={() => setUploadDate(today())}>{t('upload.today')}</Button>
-                      </Space>
-
-                      <Space>
-                        <Button type="primary" icon={<UploadOutlined />} onClick={processFiles} loading={uploading}>
-                          {t('upload.run')}
-                        </Button>
-                        <Button onClick={addManualRow}>{t('upload.addManual')}</Button>
-                      </Space>
-                    </Space>
-                  </Card>
-                </Col>
-                <Col xs={24} lg={12}>
-                  <Card
-                    title={t('upload.results')}
-                    extra={
-                      <Space>
-                        <Button
-                          type="primary"
-                          icon={<SaveOutlined />}
-                          onClick={saveResults}
-                          loading={saving}
-                          disabled={!results.length}
-                        >
-                          {t('upload.saveAll')}
-                        </Button>
-                        <Button danger icon={<DeleteOutlined />} onClick={bulkDelete}>
-                          {t('upload.deleteSelected')}
-                        </Button>
-                      </Space>
-                    }
-                  >
-                    <Table
-                      rowKey="clientId"
-                      columns={resultColumns}
-                      dataSource={results}
-                      pagination={false}
-                      size="small"
-                      rowSelection={{
-                        selectedRowKeys,
-                        onChange: (keys) =>
-                          setResults((prev) => prev.map((r) => ({ ...r, selected: keys.includes(r.clientId) }))),
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Card title={t('upload.title')}>
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Upload.Dragger
+                      multiple
+                      beforeUpload={() => false}
+                      fileList={uploadFileList}
+                      onChange={({ fileList }) =>
+                        handleFileInput(fileList.map((file) => file.originFileObj).filter(Boolean))
+                      }
+                      onRemove={(file) => {
+                        setSelectedFiles((prev) => prev.filter((f) => fileKey(f) !== file.uid))
                       }}
-                      onRow={(record) => ({
-                        onClick: () => toggleResult(record.clientId, !record.selected),
-                      })}
-                      rowClassName={(record) => (record.selected ? 'row-selected' : '')}
-                      scroll={{ x: 900 }}
-                    />
-                  </Card>
-                </Col>
-              </Row>
+                    >
+                      <p className="ant-upload-drag-icon">
+                        <InboxOutlined />
+                      </p>
+                      <p className="ant-upload-text">{t('upload.drop')}</p>
+                      <p className="ant-upload-hint">{t('upload.choose')}</p>
+                    </Upload.Dragger>
+
+                    <Space size="middle" align="center" wrap>
+                      <Button type="primary" icon={<UploadOutlined />} onClick={processFiles} loading={uploading}>
+                        {t('upload.run')}
+                      </Button>
+                      <Button onClick={addManualRow}>{t('upload.addManual')}</Button>
+                      <Text>{t('upload.billDate')}</Text>
+                      <DatePicker
+                        value={uploadDate ? moment(uploadDate, 'YYYY-MM-DD') : null}
+                        onChange={(date) => setUploadDate(date ? date.format('YYYY-MM-DD') : today())}
+                      />
+                    </Space>
+                  </Space>
+                </Card>
+
+                <Card
+                  title={t('upload.results')}
+                  extra={
+                    <Space>
+                      <Button
+                        type="primary"
+                        icon={<SaveOutlined />}
+                        onClick={saveResults}
+                        loading={saving}
+                        disabled={!results.length}
+                      >
+                        {t('upload.saveAll')}
+                      </Button>
+                      <Button danger icon={<DeleteOutlined />} onClick={bulkDelete}>
+                        {t('upload.deleteSelected')}
+                      </Button>
+                    </Space>
+                  }
+                >
+                  <Table
+                    rowKey="clientId"
+                    columns={resultColumns}
+                    dataSource={results}
+                    pagination={false}
+                    size="small"
+                    rowSelection={{
+                      selectedRowKeys,
+                      onChange: (keys) =>
+                        setResults((prev) => prev.map((r) => ({ ...r, selected: keys.includes(r.clientId) }))),
+                    }}
+                    onRow={(record) => ({
+                      onClick: () => toggleResult(record.clientId, !record.selected),
+                    })}
+                    rowClassName={(record) => (record.selected ? 'row-selected' : '')}
+                    scroll={{ x: 900 }}
+                  />
+                </Card>
+              </Space>
             </Space>
           </Tabs.TabPane>
 
@@ -1043,51 +1841,59 @@ function App() {
                       style={{ width: '100%' }}
                     />
                   </Col>
-                  <Col xs={24} md={2}>
-                    <Button type="primary" onClick={() => refreshAnalytics(1)}>
-                      {t('analytics.refresh')}
-                    </Button>
+                </Row>
+
+                <Row gutter={12} align="middle" style={{ marginTop: 10 }}>
+                  <Col flex="auto">
+                    <Space wrap>
+                      <Button type="primary" onClick={() => refreshAnalytics(1)}>
+                        {t('analytics.refresh')}
+                      </Button>
+                      <Button onClick={() => quickRange('today')}>{t('analytics.rangeToday')}</Button>
+                      <Button onClick={() => quickRange('week')}>{t('analytics.rangeWeek')}</Button>
+                      <Button onClick={() => quickRange('month')}>{t('analytics.rangeMonth')}</Button>
+                      <Button onClick={() => quickRange('year')}>{t('analytics.rangeYear')}</Button>
+                      <Button onClick={resetAnalyticsFilters}>{t('analytics.reset')}</Button>
+                    </Space>
                   </Col>
                 </Row>
 
-                <Divider />
-
-                <Space size="small" wrap>
-                  <Button onClick={() => quickRange('today')}>{t('analytics.rangeToday')}</Button>
-                  <Button onClick={() => quickRange('week')}>{t('analytics.rangeWeek')}</Button>
-                  <Button onClick={() => quickRange('month')}>{t('analytics.rangeMonth')}</Button>
-                  <Button onClick={() => quickRange('year')}>{t('analytics.rangeYear')}</Button>
-                  <Button onClick={resetAnalyticsFilters}>{t('analytics.reset')}</Button>
-                </Space>
-
                 {analyticsSummary && (
-                  <Row gutter={12} style={{ marginTop: 16 }}>
-                    <Col xs={12} md={6}>
-                      <Card size="small">
-                        <Statistic title={t('analytics.totalAmount')} value={analyticsSummary.total_amount} prefix={currency} precision={2} />
-                      </Card>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Card size="small">
-                        <Statistic title={t('analytics.count')} value={analyticsSummary.bill_count} />
-                      </Card>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Card size="small">
-                        <Statistic title={t('analytics.daysCovered')} value={analyticsSummary.day_count} />
-                      </Card>
-                    </Col>
-                    <Col xs={12} md={6}>
-                      <Card size="small">
-                        <Statistic
-                          title={t('analytics.dailyAvg')}
-                          value={numberOrZero(analyticsSummary.daily_avg)}
-                          prefix={currency}
-                          precision={2}
-                        />
-                      </Card>
-                    </Col>
-                  </Row>
+                  <>
+                    <Divider />
+                    <Row gutter={12}>
+                      <Col xs={12} md={6}>
+                        <Card size="small">
+                          <Statistic
+                            title={t('analytics.totalAmount')}
+                            value={numberOrZero(analyticsSummary.total_amount)}
+                            prefix={currency}
+                            precision={2}
+                          />
+                        </Card>
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <Card size="small">
+                          <Statistic title={t('analytics.count')} value={analyticsSummary.bill_count} />
+                        </Card>
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <Card size="small">
+                          <Statistic title={t('analytics.daysCovered')} value={analyticsSummary.day_count} />
+                        </Card>
+                      </Col>
+                      <Col xs={12} md={6}>
+                        <Card size="small">
+                          <Statistic
+                            title={t('analytics.dailyAvg')}
+                            value={numberOrZero(analyticsSummary.daily_avg)}
+                            prefix={currency}
+                            precision={2}
+                          />
+                        </Card>
+                      </Col>
+                    </Row>
+                  </>
                 )}
               </Card>
 
@@ -1096,164 +1902,649 @@ function App() {
                   rowKey="id"
                   columns={analyticsColumns}
                   dataSource={analyticsItems}
+                  onRow={(record) => ({
+                    onClick: () => openBillEdit(record),
+                  })}
+                  onChange={(pagination, filters, sorter, extra) => {
+                    const nextPage = pagination?.current || 1
+                    if (extra?.action === 'sort') {
+                      const sortInfo = Array.isArray(sorter) ? sorter[0] : sorter
+                      const nextSort = sortInfo?.order
+                        ? {
+                            field: sortInfo?.field || '',
+                            order: sortInfo?.order || '',
+                          }
+                        : { field: '', order: '' }
+                      setAnalyticsSort(nextSort)
+                      refreshAnalytics(nextPage, null, nextSort)
+                      return
+                    }
+                    refreshAnalytics(nextPage)
+                  }}
                   pagination={{
                     current: analyticsPage,
                     pageSize,
                     total: analyticsTotal,
-                    onChange: (page) => refreshAnalytics(page),
                     showSizeChanger: false,
                   }}
                   size="middle"
                   scroll={{ x: 800 }}
                 />
               </Card>
+
+              <Modal
+                title="编辑账单"
+                open={billEditOpen}
+                onCancel={() => setBillEditOpen(false)}
+                onOk={saveBillEdit}
+                okText={t('ledger.save')}
+                cancelText="取消"
+                style={{ top: '20%' }}
+                width={700}
+              >
+                <Form layout="vertical">
+                  <Row gutter={12}>
+                    <Col xs={24} md={12}>
+                      <Form.Item label={t('upload.headers')[1]}>
+                        <Input
+                          value={billEditForm.merchant}
+                          onChange={(e) => setBillEditForm({ ...billEditForm, merchant: e.target.value })}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item label={t('upload.headers')[2]}>
+                        <InputNumber
+                          min={0}
+                          value={billEditForm.amount}
+                          onChange={(value) => setBillEditForm({ ...billEditForm, amount: value })}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Row gutter={12}>
+                    <Col xs={24} md={8}>
+                      <Form.Item label={t('config.major')}>
+                        <Select
+                          value={billEditForm.major || undefined}
+                          placeholder={t('config.major')}
+                          onChange={handleBillEditMajorChange}
+                          allowClear
+                        >
+                          {majorOptions.map((m) => (
+                            <Select.Option key={`bill-edit-major-${m}`} value={m}>
+                              {m}
+                            </Select.Option>
+                          ))}
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item label={t('config.minor')}>
+                        <Select
+                          value={billEditForm.category_id ?? undefined}
+                          placeholder={t('config.minor')}
+                          onChange={handleBillEditMinorChange}
+                          disabled={!billEditForm.major}
+                          allowClear
+                        >
+                          {billEditMinorOptions.map((c) => (
+                            <Select.Option key={`bill-edit-minor-${c.id}`} value={c.id}>
+                              {c.minor || c.full_name}
+                            </Select.Option>
+                          ))}
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <Form.Item label={t('upload.headers')[4]}>
+                        <DatePicker
+                          value={billEditForm.bill_date ? moment(billEditForm.bill_date, 'YYYY-MM-DD') : null}
+                          onChange={(date) =>
+                            setBillEditForm({
+                              ...billEditForm,
+                              bill_date: date ? date.format('YYYY-MM-DD') : '',
+                            })
+                          }
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Form.Item label={t('analytics.includeInBudget')}>
+                    <Switch
+                      checked={billEditForm.include_in_budget}
+                      onChange={(checked) => setBillEditForm({ ...billEditForm, include_in_budget: checked })}
+                    />
+                  </Form.Item>
+                </Form>
+              </Modal>
             </Space>
           </Tabs.TabPane>
 
           <Tabs.TabPane tab={t('tabs.3')} key="config">
-            <Row gutter={16}>
-              <Col xs={24} lg={12}>
-                <Card title={t('config.categoriesTitle')}>
-                  <Form layout="vertical">
-                    <Row gutter={12}>
-                      <Col xs={24} md={12}>
-                        <Form.Item label={t('config.major')}>
-                          <Input
-                            value={catForm.major}
-                            placeholder=""
-                            onChange={(e) => setCatForm({ ...catForm, major: e.target.value })}
-                          />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label={t('config.minor')}>
-                          <Input
-                            value={catForm.minor}
-                            placeholder=""
-                            onChange={(e) => setCatForm({ ...catForm, minor: e.target.value })}
-                          />
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    <Row gutter={12} align="middle">
-                      <Col xs={24} md={12}>
-                        <Form.Item label={t('config.scope')}>
-                          <Select value={catForm.scope} onChange={(value) => setCatForm({ ...catForm, scope: value })}>
-                            <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
-                            <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
-                          </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label=" ">
-                          <Button type="primary" icon={<PlusOutlined />} onClick={addCategoryGroup}>
-                            {t('config.addCategory')}
-                          </Button>
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </Form>
+            <Tabs defaultActiveKey="ledger">
+              <Tabs.TabPane tab={t('settings.ledger')} key="ledger">
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  <Row gutter={[16, 16]}>
+                    <Col span={24}>
+                      <Card title="当前账本">
+                        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                          <Form layout="vertical">
+                            <Row gutter={12}>
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('ledger.name')}>
+                                  <Input
+                                    value={ledgerForm.name}
+                                    onChange={(e) => setLedgerForm({ ...ledgerForm, name: e.target.value })}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('ledger.budget')}>
+                                  <InputNumber
+                                    min={0}
+                                    value={ledgerForm.monthly_budget}
+                                    onChange={(value) => setLedgerForm({ ...ledgerForm, monthly_budget: value })}
+                                    style={{ width: '100%' }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                            <Space>
+                              <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
+                                {t('ledger.save')}
+                              </Button>
+                              <Button danger onClick={deleteLedger}>
+                                {t('ledger.delete')}
+                              </Button>
+                            </Space>
+                          </Form>
 
-                  <Divider />
+                          <Divider style={{ borderTop: '2px solid #bfbfbf', margin: '20px 0' }} />
 
-                  {Object.keys(groupedCategories).length === 0 && <Text>{t('config.noCategories')}</Text>}
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                    {Object.entries(groupedCategories).map(([major, minors]) => (
-                      <div key={major}>
-                        <Text strong>{major}</Text>
-                        <div style={{ marginTop: 8 }}>
-                          <Space size={[8, 8]} wrap>
-                            {minors.map((m) => (
-                              <Tag
-                                key={m.id}
-                                closable
-                                onClose={(e) => {
-                                  e.preventDefault()
-                                  deleteCategory(m.id)
-                                }}
-                              >
-                                {m.minor || 'N/A'}
-                              </Tag>
-                            ))}
-                          </Space>
-                        </div>
-                      </div>
-                    ))}
-                  </Space>
-                </Card>
-              </Col>
-              <Col xs={24} lg={12}>
-                <Card title={t('config.rulesTitle')}>
-                  <Form layout="vertical">
-                    <Row gutter={12}>
-                      <Col xs={24} md={12}>
-                        <Form.Item label={t('config.keyword')}>
-                          <Input
-                            value={ruleForm.keyword}
-                            placeholder=""
-                            onChange={(e) => setRuleForm({ ...ruleForm, keyword: e.target.value })}
-                          />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={12}>
-                        <Form.Item label={t('config.category')}>
-                          <Select
-                            value={ruleForm.category || undefined}
-                            placeholder={t('config.category')}
-                            onChange={(value) => setRuleForm({ ...ruleForm, category: value || '' })}
+                          <Row justify="space-between" align="middle">
+                            <Col>
+                              <Text strong>{t('recurring.title')}</Text>
+                            </Col>
+                            <Col>
+                              <Space>
+                                <Button type="primary" onClick={() => setRecurringCreateOpen(true)}>
+                                  {t('recurring.createButton')}
+                                </Button>
+                                <Button
+                                  onClick={() => {
+                                    setRecurringManageOpen(true)
+                                    loadRecurringRules()
+                                  }}
+                                >
+                                  {t('recurring.manageButton')}
+                                </Button>
+                              </Space>
+                            </Col>
+                          </Row>
+
+                          <Modal
+                            title={t('recurring.createTitle')}
+                            open={recurringCreateOpen}
+                            onCancel={() => setRecurringCreateOpen(false)}
+                            onOk={async () => {
+                              const ok = await addRecurringRule()
+                              if (ok) setRecurringCreateOpen(false)
+                            }}
+                            okText={t('ledger.save')}
+                            cancelText="取消"
+                            style={{ top: '20%' }}
+                            width={900}
                           >
-                            {categories.map((c) => (
-                              <Select.Option key={c.id} value={c.full_name}>
-                                {c.full_name}
+                            <Form layout="vertical">
+                              <Row gutter={12}>
+                                <Col xs={24} md={6}>
+                                  <Form.Item label={t('recurring.amount')}>
+                                    <InputNumber
+                                      min={0}
+                                      value={recurringForm.amount}
+                                      onChange={(value) => setRecurringForm({ ...recurringForm, amount: value })}
+                                      style={{ width: '100%' }}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={6}>
+                                  <Form.Item label={t('recurring.keyword')}>
+                                    <Input
+                                      value={recurringForm.keyword}
+                                      onChange={(e) => setRecurringForm({ ...recurringForm, keyword: e.target.value })}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={6}>
+                                  <Form.Item label={t('recurring.category')}>
+                                    <Select
+                                      value={recurringForm.category_id ?? undefined}
+                                      placeholder={t('recurring.category')}
+                                      onChange={handleRecurringCategoryChange}
+                                      allowClear
+                                    >
+                                      {categories.map((c) => (
+                                        <Select.Option key={c.id} value={c.id}>
+                                          {c.full_name}
+                                        </Select.Option>
+                                      ))}
+                                    </Select>
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={6}>
+                                  <Form.Item label={t('recurring.note')}>
+                                    <Input
+                                      value={recurringForm.note}
+                                      onChange={(e) => setRecurringForm({ ...recurringForm, note: e.target.value })}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                          <Row gutter={12} align="middle">
+                            <Col xs={24} md={6}>
+                              <Form.Item label={t('recurring.scheduleType')}>
+                                <Select
+                                  value={recurringForm.schedule_type}
+                                  onChange={handleRecurringScheduleTypeChange}
+                                >
+                                  <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
+                                  <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
+                                </Select>
+                              </Form.Item>
+                            </Col>
+                                <Col xs={24} md={6}>
+                                  <Form.Item
+                                    label={
+                                      recurringForm.schedule_type === 'weekly'
+                                        ? t('recurring.weekday')
+                                        : t('recurring.monthDay')
+                                    }
+                                  >
+                                    <Select
+                                      mode="multiple"
+                                      value={recurringForm.schedule_value}
+                                      onChange={(value) =>
+                                        setRecurringForm({ ...recurringForm, schedule_value: value })
+                                      }
+                                      options={
+                                        recurringForm.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions
+                                      }
+                                    />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={6}>
+                                  <Form.Item label={t('recurring.startDate')}>
+                                    <DatePicker
+                                      value={
+                                        recurringForm.start_date
+                                          ? moment(recurringForm.start_date, 'YYYY-MM-DD')
+                                          : null
+                                      }
+                                      onChange={handleRecurringStartDateChange}
+                                      style={{ width: '100%' }}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={6}>
+                                  <Form.Item label={t('recurring.endDate')}>
+                                    <DatePicker
+                                      allowClear
+                                      value={
+                                        recurringForm.end_date ? moment(recurringForm.end_date, 'YYYY-MM-DD') : null
+                                      }
+                                      onChange={(date) =>
+                                        setRecurringForm({
+                                          ...recurringForm,
+                                          end_date: date ? date.format('YYYY-MM-DD') : '',
+                                        })
+                                      }
+                                      style={{ width: '100%' }}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                              <Row gutter={12}>
+                                <Col xs={24} md={6}>
+                                  <Form.Item label={t('recurring.includeInBudget')}>
+                                    <Switch
+                                      checked={recurringForm.include_in_budget}
+                                      onChange={(checked) =>
+                                        setRecurringForm({ ...recurringForm, include_in_budget: checked })
+                                      }
+                                    />
+                                  </Form.Item>
+                                </Col>
+                              </Row>
+                            </Form>
+                          </Modal>
+
+                          <Modal
+                            title={t('recurring.manageTitle')}
+                            open={recurringManageOpen}
+                            onCancel={() => setRecurringManageOpen(false)}
+                            footer={null}
+                            style={{ top: '20%' }}
+                            width={1200}
+                          >
+                            <Table
+                              rowKey="id"
+                              columns={recurringColumns}
+                              dataSource={recurringRules}
+                              pagination={{ pageSize: 8 }}
+                              scroll={{ x: 1320 }}
+                            />
+                          </Modal>
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col span={24}>
+                      <Card title={t('ledger.newLedger')}>
+                        <Form layout="vertical">
+                          <Row gutter={12}>
+                            <Col xs={24} md={12}>
+                              <Form.Item label={t('ledger.name')}>
+                                <Input
+                                  value={newLedger.name}
+                                  onChange={(e) => setNewLedger({ ...newLedger, name: e.target.value })}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={12}>
+                              <Form.Item label={t('ledger.budget')}>
+                                <InputNumber
+                                  min={0}
+                                  value={newLedger.monthly_budget}
+                                  onChange={(value) => setNewLedger({ ...newLedger, monthly_budget: value })}
+                                  style={{ width: '100%' }}
+                                />
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                          <Button type="dashed" icon={<PlusOutlined />} onClick={createLedger}>
+                            {t('ledger.create')}
+                          </Button>
+                        </Form>
+                      </Card>
+                    </Col>
+                  </Row>
+                </Space>
+              </Tabs.TabPane>
+              <Tabs.TabPane tab={t('settings.categories')} key="categories">
+                <Row gutter={[16, 16]}>
+                  <Col span={24}>
+                    <Card title={t('config.categoriesTitle')}>
+                      <Row justify="space-between" align="middle">
+                        <Col>
+                          <Text strong>{t('config.categoriesTitle')}</Text>
+                        </Col>
+                        <Col>
+                          <Space>
+                            <Button type="primary" onClick={() => setCategoryCreateOpen(true)}>
+                              {t('config.createButton')}
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                setCategoryManageOpen(true)
+                                loadCategories()
+                              }}
+                            >
+                              {t('config.manageButton')}
+                            </Button>
+                          </Space>
+                        </Col>
+                      </Row>
+
+                      <Modal
+                        title={t('config.createCategoryTitle')}
+                        open={categoryCreateOpen}
+                        onCancel={() => setCategoryCreateOpen(false)}
+                        onOk={async () => {
+                          const ok = await addCategoryGroup()
+                          if (ok) setCategoryCreateOpen(false)
+                        }}
+                        okText={t('ledger.save')}
+                        cancelText="取消"
+                        style={{ top: '20%' }}
+                        width={700}
+                      >
+                        <Form layout="vertical">
+                          <Row gutter={12}>
+                            <Col xs={24} md={12}>
+                              <Form.Item label={t('config.major')}>
+                                <Input
+                                  value={catForm.major}
+                                  placeholder=""
+                                  onChange={(e) => setCatForm({ ...catForm, major: e.target.value })}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={12}>
+                              <Form.Item label={t('config.minor')}>
+                                <Input
+                                  value={catForm.minor}
+                                  placeholder=""
+                                  onChange={(e) => setCatForm({ ...catForm, minor: e.target.value })}
+                                />
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                          <Row gutter={12} align="middle">
+                            <Col xs={24} md={12}>
+                              <Form.Item label={t('config.scope')}>
+                                <Select value={catForm.scope} onChange={(value) => setCatForm({ ...catForm, scope: value })}>
+                                  <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
+                                  <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                                </Select>
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                        </Form>
+                      </Modal>
+
+                      <Modal
+                        title={t('config.manageCategoryTitle')}
+                        open={categoryManageOpen}
+                        onCancel={() => setCategoryManageOpen(false)}
+                        footer={null}
+                        style={{ top: '20%' }}
+                        width={900}
+                      >
+                        <Space wrap style={{ marginBottom: 12 }}>
+                          <Select
+                            placeholder={t('config.filterMajor')}
+                            value={categoryFilter.major || undefined}
+                            allowClear
+                            style={{ width: 200 }}
+                            onChange={(value) =>
+                              setCategoryFilter({ ...categoryFilter, major: value || '', minor: '' })
+                            }
+                          >
+                            {majorOptions.map((m) => (
+                              <Select.Option key={m} value={m}>
+                                {m}
                               </Select.Option>
                             ))}
                           </Select>
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                    <Row gutter={12} align="middle">
-                      <Col xs={24} md={6}>
-                        <Form.Item label={t('config.priority')}>
-                          <InputNumber
-                            min={1}
-                            value={ruleForm.priority}
-                            onChange={(value) => setRuleForm({ ...ruleForm, priority: value })}
-                            style={{ width: '100%' }}
-                          />
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={8}>
-                        <Form.Item label={t('config.scope')}>
-                          <Select value={ruleForm.scope} onChange={(value) => setRuleForm({ ...ruleForm, scope: value })}>
-                            <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
-                            <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                          <Select
+                            placeholder={t('config.filterMinor')}
+                            value={categoryFilter.minor || undefined}
+                            allowClear
+                            style={{ width: 200 }}
+                            onChange={(value) => setCategoryFilter({ ...categoryFilter, minor: value || '' })}
+                          >
+                            {categoryFilterMinorOptions.map((c) => (
+                              <Select.Option key={`${c.id}-minor`} value={c.minor}>
+                                {c.minor || c.full_name}
+                              </Select.Option>
+                            ))}
                           </Select>
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={6}>
-                        <Form.Item label=" ">
-                          <Checkbox checked={ruleForm.is_weak} onChange={(e) => setRuleForm({ ...ruleForm, is_weak: e.target.checked })}>
-                            {t('config.weakMatch')}
-                          </Checkbox>
-                        </Form.Item>
-                      </Col>
-                      <Col xs={24} md={4}>
-                        <Form.Item label=" ">
-                          <Button type="primary" icon={<PlusOutlined />} onClick={addRule}>
-                            {t('config.addRule')}
-                          </Button>
-                        </Form.Item>
-                      </Col>
-                    </Row>
-                  </Form>
+                        </Space>
+                        <Table
+                          rowKey="id"
+                          columns={categoryColumns}
+                          dataSource={categoryFiltered}
+                          pagination={{ pageSize: 8 }}
+                        />
+                      </Modal>
+                    </Card>
+                  </Col>
+                  <Col span={24}>
+                    <Card title={t('config.rulesTitle')}>
+                      <Row justify="space-between" align="middle">
+                        <Col>
+                          <Text strong>{t('config.rulesTitle')}</Text>
+                        </Col>
+                        <Col>
+                          <Space>
+                            <Button type="primary" onClick={() => setRuleCreateOpen(true)}>
+                              {t('config.createButton')}
+                            </Button>
+                            <Button
+                              onClick={() => {
+                                setRuleManageOpen(true)
+                                loadRules()
+                              }}
+                            >
+                              {t('config.manageButton')}
+                            </Button>
+                          </Space>
+                        </Col>
+                      </Row>
 
-                  <Divider />
+                      <Modal
+                        title={t('config.createRuleTitle')}
+                        open={ruleCreateOpen}
+                        onCancel={() => setRuleCreateOpen(false)}
+                        onOk={async () => {
+                          const ok = await addRule()
+                          if (ok) setRuleCreateOpen(false)
+                        }}
+                        okText={t('ledger.save')}
+                        cancelText="取消"
+                        style={{ top: '20%' }}
+                        width={900}
+                      >
+                        <Form layout="vertical">
+                          <Row gutter={12}>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.keyword')}>
+                                <Input
+                                  value={ruleForm.keyword}
+                                  placeholder=""
+                                  onChange={(e) => setRuleForm({ ...ruleForm, keyword: e.target.value })}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.major')}>
+                                <Select
+                                  value={ruleForm.major || undefined}
+                                  placeholder={t('config.major')}
+                                  onChange={handleRuleMajorChange}
+                                  allowClear
+                                >
+                                  {ruleMajorOptions.map((m) => (
+                                    <Select.Option key={m} value={m}>
+                                      {m}
+                                    </Select.Option>
+                                  ))}
+                                </Select>
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.minor')}>
+                                <Select
+                                  value={ruleForm.category_id ?? undefined}
+                                  placeholder={t('config.minor')}
+                                  onChange={handleRuleMinorChange}
+                                  disabled={!ruleForm.major}
+                                  allowClear
+                                >
+                                  {ruleMinorOptions.map((c) => (
+                                    <Select.Option key={c.id} value={c.id}>
+                                      {c.minor || c.full_name}
+                                    </Select.Option>
+                                  ))}
+                                </Select>
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                          <Row gutter={12} align="middle">
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.priority')}>
+                                <InputNumber
+                                  min={1}
+                                  value={ruleForm.priority}
+                                  onChange={(value) => setRuleForm({ ...ruleForm, priority: value })}
+                                  style={{ width: '100%' }}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.scope')}>
+                                <Select value={ruleForm.scope} onChange={(value) => setRuleForm({ ...ruleForm, scope: value })}>
+                                  <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
+                                  <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                                </Select>
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                        </Form>
+                      </Modal>
 
-                  <Table rowKey="id" columns={rulesColumns} dataSource={rules} pagination={{ pageSize: 8 }} />
-                </Card>
-              </Col>
-            </Row>
-          </Tabs.TabPane>
+                      <Modal
+                        title={t('config.manageRuleTitle')}
+                        open={ruleManageOpen}
+                        onCancel={() => setRuleManageOpen(false)}
+                        footer={null}
+                        style={{ top: '20%' }}
+                        width={1100}
+                      >
+                        <Space wrap style={{ marginBottom: 12 }}>
+                          <Input
+                            placeholder={t('config.filterKeyword')}
+                            value={ruleFilter.keyword}
+                            onChange={(e) => setRuleFilter({ ...ruleFilter, keyword: e.target.value })}
+                            style={{ width: 200 }}
+                          />
+                          <Select
+                            placeholder={t('config.filterMajor')}
+                            value={ruleFilter.major || undefined}
+                            allowClear
+                            style={{ width: 200 }}
+                            onChange={(value) => setRuleFilter({ ...ruleFilter, major: value || '', minor: '' })}
+                          >
+                            {ruleMajorOptions.map((m) => (
+                              <Select.Option key={`rule-major-${m}`} value={m}>
+                                {m}
+                              </Select.Option>
+                            ))}
+                          </Select>
+                          <Select
+                            placeholder={t('config.filterMinor')}
+                            value={ruleFilter.minor || undefined}
+                            allowClear
+                            style={{ width: 200 }}
+                            onChange={(value) => setRuleFilter({ ...ruleFilter, minor: value || '' })}
+                          >
+                            {ruleFilterMinorOptions.map((c) => (
+                              <Select.Option key={`rule-minor-${c.id}`} value={c.minor}>
+                                {c.minor || c.full_name}
+                              </Select.Option>
+                            ))}
+                          </Select>
+                        </Space>
+                        <Table rowKey="id" columns={rulesColumns} dataSource={rulesFiltered} pagination={{ pageSize: 8 }} />
+                      </Modal>
+                    </Card>
+                  </Col>
+                </Row>
+              </Tabs.TabPane>
+            </Tabs>
+</Tabs.TabPane>
         </Tabs>
       </Layout.Content>
     </Layout>

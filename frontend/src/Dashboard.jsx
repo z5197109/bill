@@ -156,7 +156,7 @@ function Dashboard({ currentLedgerId, onAddBill, refreshTrigger }) {
     )
   }
 
-  const { monthly_spending, budget_info, top_categories, metadata } = dashboardData
+  const { monthly_spending, non_budget_spending, budget_info, top_categories, metadata } = dashboardData
 
   return (
     <div className="dashboard-container">
@@ -194,6 +194,7 @@ function Dashboard({ currentLedgerId, onAddBill, refreshTrigger }) {
         <Col xs={24} lg={12}>
           <MonthlySpendingCard 
             amount={monthly_spending}
+            nonBudgetAmount={non_budget_spending}
             loading={loading}
             currency="¥"
           />

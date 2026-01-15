@@ -25,6 +25,7 @@ class EnhancedBill:
     updated_at: str = ""
     raw_text: List[str] = None
     is_manual: bool = False
+    include_in_budget: bool = True
     
     def __post_init__(self):
         if self.raw_text is None:
@@ -35,6 +36,8 @@ class EnhancedBill:
             self.created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not self.updated_at:
             self.updated_at = self.created_at
+        if self.include_in_budget is None:
+            self.include_in_budget = True
 
 
 @dataclass
@@ -45,7 +48,7 @@ class CategoryRule:
     category_id: Optional[int] = None
     category: str = ""
     ledger_id: Optional[int] = None
-    priority: int = 1
+    priority: int = 2
     is_weak: bool = False
     created_at: str = ""
     updated_at: str = ""
@@ -77,6 +80,39 @@ class CategoryGroup:
             self.created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not self.updated_at:
             self.updated_at = self.created_at
+
+
+@dataclass
+class RecurringRule:
+    """Recurring bill rule data model"""
+    id: Optional[int] = None
+    ledger_id: Optional[int] = None
+    amount: float = 0.0
+    keyword: str = ""
+    category_id: Optional[int] = None
+    category: str = ""
+    note: str = ""
+    schedule_type: str = "weekly"  # weekly | monthly
+    schedule_value: List[int] = None
+    start_date: str = ""  # YYYY-MM-DD
+    end_date: Optional[str] = None
+    enabled: bool = True
+    include_in_budget: bool = True
+    created_at: str = ""
+    updated_at: str = ""
+
+    def __post_init__(self):
+        today = datetime.date.today().strftime("%Y-%m-%d")
+        if not self.start_date:
+            self.start_date = today
+        if self.schedule_value is None:
+            self.schedule_value = [1]
+        if not self.created_at:
+            self.created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if not self.updated_at:
+            self.updated_at = self.created_at
+        if self.include_in_budget is None:
+            self.include_in_budget = True
 
 class EnhancedDatabaseManager:
     """Enhanced database manager with new schema and features"""
@@ -123,7 +159,8 @@ class EnhancedDatabaseManager:
                 created_at TEXT,
                 updated_at TEXT,
                 is_manual INTEGER DEFAULT 0,
-                ledger_id INTEGER
+                ledger_id INTEGER,
+                include_in_budget INTEGER DEFAULT 1
             )
         ''')
         
@@ -153,6 +190,58 @@ class EnhancedDatabaseManager:
             )
         ''')
 
+        # Create recurring rules table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS recurring_rules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ledger_id INTEGER,
+                amount REAL NOT NULL,
+                keyword TEXT,
+                category_id INTEGER,
+                category TEXT,
+                note TEXT,
+                schedule_type TEXT NOT NULL,
+                schedule_value INTEGER NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT,
+                enabled INTEGER DEFAULT 1,
+                include_in_budget INTEGER DEFAULT 1,
+                created_at TEXT,
+                updated_at TEXT
+            )
+        ''')
+
+        cursor.execute("PRAGMA table_info(recurring_rules)")
+        recurring_cols = [c[1] for c in cursor.fetchall()]
+        if 'ledger_id' not in recurring_cols:
+            try:
+                cursor.execute('ALTER TABLE recurring_rules ADD COLUMN ledger_id INTEGER')
+            except Exception:
+                pass
+        if 'keyword' not in recurring_cols:
+            try:
+                cursor.execute('ALTER TABLE recurring_rules ADD COLUMN keyword TEXT')
+            except Exception:
+                pass
+        if 'include_in_budget' not in recurring_cols:
+            try:
+                cursor.execute('ALTER TABLE recurring_rules ADD COLUMN include_in_budget INTEGER DEFAULT 1')
+            except Exception:
+                pass
+
+        # Track generated recurring bills to avoid duplicates
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS recurring_rule_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_id INTEGER NOT NULL,
+                ledger_id INTEGER,
+                bill_date TEXT NOT NULL,
+                bill_id INTEGER,
+                created_at TEXT,
+                UNIQUE(rule_id, bill_date)
+            )
+        ''')
+
         # Add ledger_id columns if missing
         for table in ['bills', 'category_rules', 'categories']:
             cursor.execute(f"PRAGMA table_info({table})")
@@ -162,6 +251,14 @@ class EnhancedDatabaseManager:
                     cursor.execute(f'ALTER TABLE {table} ADD COLUMN ledger_id INTEGER')
                 except Exception:
                     pass
+
+        cursor.execute("PRAGMA table_info(bills)")
+        bill_cols = [c[1] for c in cursor.fetchall()]
+        if 'include_in_budget' not in bill_cols:
+            try:
+                cursor.execute('ALTER TABLE bills ADD COLUMN include_in_budget INTEGER DEFAULT 1')
+            except Exception:
+                pass
 
         # Ensure default ledger exists before running migrations that need it
         cursor.execute('SELECT COUNT(*) FROM ledgers')
@@ -190,6 +287,8 @@ class EnhancedDatabaseManager:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_bills_created_at ON bills(created_at)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_category_rules_keyword ON category_rules(keyword)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_categories_major_minor ON categories(major, minor)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_recurring_rules_ledger ON recurring_rules(ledger_id)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_recurring_rule_runs_rule_date ON recurring_rule_runs(rule_id, bill_date)')
         
         # Initialize category rules from config if table is empty
         cursor.execute('SELECT COUNT(*) FROM category_rules')
@@ -435,14 +534,13 @@ class EnhancedDatabaseManager:
         print("🔄 [DB Init] 正在从配置文件初始化分类规则...")
         
         for keyword, category in config.CATEGORY_RULES.items():
-            is_weak = 1 if keyword in config.WEAK_KEYWORDS else 0
-            priority = 1 if is_weak else 2
+            priority = 2
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             cursor.execute('''
-                INSERT INTO category_rules (keyword, category, priority, is_weak, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (keyword, category, priority, is_weak, now, now))
+                INSERT INTO category_rules (keyword, category, priority, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (keyword, category, priority, now, now))
         
         print("✅ [DB Init] 分类规则初始化完成")
 
@@ -458,6 +556,25 @@ class EnhancedDatabaseManager:
         if len(parts) == 2:
             return CategoryGroup(major=parts[0].strip(), minor=parts[1].strip())
         return CategoryGroup(major=category_name.strip(), minor="")
+
+    def _normalize_schedule_values(self, value: Any) -> List[int]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            values = value
+        elif isinstance(value, str):
+            text = value.strip()
+            values = [int(v) for v in text.split(',') if v.strip()] if text else []
+        else:
+            values = [value]
+        normalized = []
+        for v in values:
+            try:
+                num = int(v)
+                normalized.append(num)
+            except (TypeError, ValueError):
+                continue
+        return sorted(set(normalized))
 
     def _resolve_category(self, cursor, category_name: str, category_id: Optional[int], ledger_id: Optional[int]):
         """Return (category_id, category_full_name) using ID when provided; otherwise try to find by name."""
@@ -583,21 +700,21 @@ class EnhancedDatabaseManager:
             cursor.execute('''
                 UPDATE bills 
                 SET image_name=?, merchant=?, category=?, category_id=?, amount=?, raw_text=?,
-                    bill_date=?, updated_at=?, is_manual=?, ledger_id=?
+                    bill_date=?, updated_at=?, is_manual=?, ledger_id=?, include_in_budget=?
                 WHERE id=?
             ''', (bill.filename, bill.merchant, bill.category, bill.category_id, bill.amount, 
                   raw_text_json, bill.bill_date, bill.updated_at, 
-                  int(bill.is_manual), bill.ledger_id, bill.id))
+                  int(bill.is_manual), bill.ledger_id, int(bool(bill.include_in_budget)), bill.id))
             bill_id = bill.id
         else:
             # Insert new bill
             cursor.execute('''
                 INSERT INTO bills (record_time, image_name, merchant, category, category_id, amount, 
-                                 raw_text, bill_date, created_at, updated_at, is_manual, ledger_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 raw_text, bill_date, created_at, updated_at, is_manual, ledger_id, include_in_budget)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (bill.created_at, bill.filename, bill.merchant, bill.category, bill.category_id,
                   bill.amount, raw_text_json, bill.bill_date, bill.created_at, 
-                  bill.updated_at, int(bill.is_manual), bill.ledger_id))
+                  bill.updated_at, int(bill.is_manual), bill.ledger_id, int(bool(bill.include_in_budget))))
             bill_id = cursor.lastrowid
         
         conn.commit()
@@ -645,11 +762,13 @@ class EnhancedDatabaseManager:
         rows = cursor.fetchall()
         return [self._format_category_name(row[0], row[1]) for row in rows]
 
-    def get_bills(self, limit: int = 100, offset: int = 0, 
+    def get_bills(self, limit: int = 100, offset: int = 0,
                   start_date: str = None, end_date: str = None,
                   category: str = None, keyword: str = None,
                   major: str = None, minor: str = None,
-                  ledger_id: Optional[int] = None) -> List[EnhancedBill]:
+                  ledger_id: Optional[int] = None,
+                  sort_by: Optional[str] = None,
+                  sort_order: Optional[str] = None) -> List[EnhancedBill]:
         """Get bills with filtering and pagination"""
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -685,8 +804,21 @@ class EnhancedDatabaseManager:
         if ledger_id is not None:
             query += ' AND b.ledger_id = ?'
             params.append(ledger_id)
-        
-        query += ' ORDER BY b.bill_date DESC, b.created_at DESC LIMIT ? OFFSET ?'
+
+        sort_map = {
+            'bill_date': 'b.bill_date',
+            'merchant': 'b.merchant',
+            'category': "COALESCE(c.major || '/' || c.minor, b.category)",
+            'amount': 'b.amount',
+        }
+        sort_field = sort_map.get((sort_by or '').strip())
+        sort_dir = 'ASC' if (sort_order or '').lower() == 'asc' else 'DESC'
+        if sort_field:
+            query += f' ORDER BY {sort_field} {sort_dir}, b.created_at DESC'
+        else:
+            query += ' ORDER BY b.bill_date DESC, b.created_at DESC'
+
+        query += ' LIMIT ? OFFSET ?'
         params.extend([limit, offset])
         
         cursor.execute(query, params)
@@ -756,8 +888,9 @@ class EnhancedDatabaseManager:
         """Convert database row to EnhancedBill object"""
         raw_text = json.loads(row[6]) if row[6] else []
         cat_id = row[12] if len(row) > 12 else None
-        cat_major = row[13] if len(row) > 13 else None
-        cat_minor = row[14] if len(row) > 14 else None
+        include_in_budget = bool(row[13]) if len(row) > 13 and row[13] is not None else True
+        cat_major = row[14] if len(row) > 14 else None
+        cat_minor = row[15] if len(row) > 15 else None
         category_name = self._format_category_name(cat_major, cat_minor) if cat_major is not None else (row[4] or "")
         
         return EnhancedBill(
@@ -772,7 +905,8 @@ class EnhancedDatabaseManager:
             created_at=row[8] or row[1],  # Fallback to record_time
             updated_at=row[9] or row[1],  # Fallback to record_time
             raw_text=raw_text,
-            is_manual=bool(row[10]) if len(row) > 10 else False
+            is_manual=bool(row[10]) if len(row) > 10 else False,
+            include_in_budget=include_in_budget
         )
     
     # Category Rules CRUD operations
@@ -782,7 +916,7 @@ class EnhancedDatabaseManager:
         cursor = conn.cursor()
 
         query = '''
-            SELECT r.id, r.keyword, r.category, r.category_id, r.priority, r.is_weak,
+            SELECT r.id, r.keyword, r.category, r.category_id, r.priority,
                    r.created_at, r.updated_at, r.ledger_id, c.major, c.minor
             FROM category_rules r
             LEFT JOIN categories c ON r.category_id = c.id
@@ -814,18 +948,18 @@ class EnhancedDatabaseManager:
             # Update existing rule
             cursor.execute('''
                 UPDATE category_rules 
-                SET keyword=?, category=?, category_id=?, priority=?, is_weak=?, updated_at=?, ledger_id=?
+                SET keyword=?, category=?, category_id=?, priority=?, updated_at=?, ledger_id=?
                 WHERE id=?
-            ''', (rule.keyword, rule.category, rule.category_id, rule.priority, 
-                  int(rule.is_weak), rule.updated_at, rule.ledger_id, rule.id))
+            ''', (rule.keyword, rule.category, rule.category_id, rule.priority,
+                  rule.updated_at, rule.ledger_id, rule.id))
             rule_id = rule.id
         else:
             # Insert new rule
             cursor.execute('''
-                INSERT INTO category_rules (keyword, category, category_id, priority, is_weak, created_at, updated_at, ledger_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (rule.keyword, rule.category, rule.category_id, rule.priority, 
-                  int(rule.is_weak), rule.created_at, rule.updated_at, rule.ledger_id))
+                INSERT INTO category_rules (keyword, category, category_id, priority, created_at, updated_at, ledger_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (rule.keyword, rule.category, rule.category_id, rule.priority,
+                  rule.created_at, rule.updated_at, rule.ledger_id))
             rule_id = cursor.lastrowid
         
         conn.commit()
@@ -843,20 +977,271 @@ class EnhancedDatabaseManager:
         conn.commit()
         conn.close()
         return deleted
+
+    # Recurring Rules CRUD operations
+    def get_recurring_rules(self, ledger_id: Optional[int] = None) -> List[RecurringRule]:
+        """Get recurring rules for a ledger"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+
+        if ledger_id is None:
+            ledger_id = self.get_default_ledger_id()
+
+        query = '''
+            SELECT r.id, r.ledger_id, r.amount, r.keyword, r.category_id, r.category, r.note,
+                   r.schedule_type, r.schedule_value, r.start_date, r.end_date,
+                   r.enabled, r.include_in_budget, r.created_at, r.updated_at, c.major, c.minor
+            FROM recurring_rules r
+            LEFT JOIN categories c ON r.category_id = c.id
+            WHERE r.ledger_id = ?
+            ORDER BY r.enabled DESC, r.start_date, r.id DESC
+        '''
+        cursor.execute(query, (ledger_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [self._row_to_recurring_rule(row) for row in rows]
+
+    def get_recurring_rule(self, rule_id: int) -> Optional[RecurringRule]:
+        """Get a recurring rule by id"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        query = '''
+            SELECT r.id, r.ledger_id, r.amount, r.keyword, r.category_id, r.category, r.note,
+                   r.schedule_type, r.schedule_value, r.start_date, r.end_date,
+                   r.enabled, r.include_in_budget, r.created_at, r.updated_at, c.major, c.minor
+            FROM recurring_rules r
+            LEFT JOIN categories c ON r.category_id = c.id
+            WHERE r.id = ?
+        '''
+        cursor.execute(query, (rule_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return self._row_to_recurring_rule(row) if row else None
+
+    def save_recurring_rule(self, rule: RecurringRule) -> int:
+        """Save a recurring rule"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+
+        if rule.ledger_id is None:
+            rule.ledger_id = self.get_default_ledger_id()
+
+        rule.amount = float(rule.amount or 0)
+        rule.schedule_value = self._normalize_schedule_values(rule.schedule_value)
+        if not rule.schedule_value:
+            rule.schedule_value = [1]
+        rule.enabled = bool(rule.enabled)
+        rule.include_in_budget = rule.include_in_budget if rule.include_in_budget is not None else True
+        rule.category_id, rule.category = self._resolve_category(
+            cursor, rule.category, rule.category_id, rule.ledger_id
+        )
+        rule.updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        schedule_value_str = ",".join(str(v) for v in rule.schedule_value)
+
+        if rule.id:
+            cursor.execute('''
+                UPDATE recurring_rules
+                SET amount=?, keyword=?, category_id=?, category=?, note=?, schedule_type=?, schedule_value=?,
+                    start_date=?, end_date=?, enabled=?, include_in_budget=?, updated_at=?, ledger_id=?
+                WHERE id=?
+            ''', (
+                rule.amount,
+                rule.keyword,
+                rule.category_id,
+                rule.category,
+                rule.note,
+                rule.schedule_type,
+                schedule_value_str,
+                rule.start_date,
+                rule.end_date,
+                1 if rule.enabled else 0,
+                1 if rule.include_in_budget else 0,
+                rule.updated_at,
+                rule.ledger_id,
+                rule.id,
+            ))
+            rule_id = rule.id
+        else:
+            cursor.execute('''
+                INSERT INTO recurring_rules (
+                    ledger_id, amount, keyword, category_id, category, note, schedule_type, schedule_value,
+                    start_date, end_date, enabled, include_in_budget, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                rule.ledger_id,
+                rule.amount,
+                rule.keyword,
+                rule.category_id,
+                rule.category,
+                rule.note,
+                rule.schedule_type,
+                schedule_value_str,
+                rule.start_date,
+                rule.end_date,
+                1 if rule.enabled else 0,
+                1 if rule.include_in_budget else 0,
+                rule.created_at,
+                rule.updated_at,
+            ))
+            rule_id = cursor.lastrowid
+
+        conn.commit()
+        conn.close()
+        return rule_id
+
+    def delete_recurring_rule(self, rule_id: int) -> bool:
+        """Delete a recurring rule"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM recurring_rules WHERE id = ?', (rule_id,))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return deleted
+
+    def generate_recurring_bills(self, ledger_id: Optional[int] = None, upto_date: Optional[str] = None) -> int:
+        """Generate bills from recurring rules up to a date (inclusive)."""
+        if ledger_id is None:
+            ledger_id = self.get_default_ledger_id()
+
+        if upto_date:
+            try:
+                end_date = datetime.datetime.strptime(upto_date, "%Y-%m-%d").date()
+            except ValueError:
+                end_date = datetime.date.today()
+        else:
+            end_date = datetime.date.today()
+
+        rules = [r for r in self.get_recurring_rules(ledger_id) if r.enabled]
+        if not rules:
+            return 0
+
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        created = 0
+        now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        for rule in rules:
+            schedule_values = self._normalize_schedule_values(rule.schedule_value)
+            limit = 7 if rule.schedule_type == "weekly" else 31
+            schedule_values = [v for v in schedule_values if 1 <= v <= limit]
+            if not schedule_values:
+                continue
+
+            try:
+                start_date = datetime.datetime.strptime(rule.start_date, "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                start_date = end_date
+
+            rule_end = end_date
+            if rule.end_date:
+                try:
+                    rule_end = datetime.datetime.strptime(rule.end_date, "%Y-%m-%d").date()
+                except ValueError:
+                    rule_end = end_date
+
+            if rule_end > end_date:
+                rule_end = end_date
+            if start_date > rule_end:
+                continue
+
+            current = start_date
+            while current <= rule_end:
+                match = False
+                if rule.schedule_type == "weekly":
+                    match = current.isoweekday() in schedule_values
+                elif rule.schedule_type == "monthly":
+                    match = current.day in schedule_values
+                if match:
+                    bill_date = current.strftime("%Y-%m-%d")
+                    cursor.execute(
+                        '''
+                        INSERT OR IGNORE INTO recurring_rule_runs (rule_id, ledger_id, bill_date, created_at)
+                        VALUES (?, ?, ?, ?)
+                        ''',
+                        (rule.id, ledger_id, bill_date, now_ts),
+                    )
+                    if cursor.rowcount > 0:
+                        category_id, category_name = self._resolve_category(
+                            cursor, rule.category, rule.category_id, ledger_id
+                        )
+                        merchant = rule.keyword or rule.note or "周期性账单"
+                        raw_text_json = json.dumps([], ensure_ascii=False)
+                        cursor.execute(
+                            '''
+                            INSERT INTO bills (record_time, image_name, merchant, category, category_id, amount,
+                                              raw_text, bill_date, created_at, updated_at, is_manual, ledger_id,
+                                              include_in_budget)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ''',
+                            (
+                                now_ts,
+                                "",
+                                merchant,
+                                category_name,
+                                category_id,
+                                float(rule.amount or 0),
+                                raw_text_json,
+                                bill_date,
+                                now_ts,
+                                now_ts,
+                                0,
+                                ledger_id,
+                                1 if rule.include_in_budget else 0,
+                            ),
+                        )
+                        bill_id = cursor.lastrowid
+                        cursor.execute(
+                            '''
+                            UPDATE recurring_rule_runs
+                            SET bill_id=?
+                            WHERE rule_id=? AND bill_date=?
+                            ''',
+                            (bill_id, rule.id, bill_date),
+                        )
+                        created += 1
+                current += datetime.timedelta(days=1)
+
+        conn.commit()
+        conn.close()
+        return created
     
     def _row_to_category_rule(self, row) -> CategoryRule:
         """Convert database row to CategoryRule object"""
-        cat_name = self._format_category_name(row[9], row[10]) if len(row) > 10 and row[9] is not None else row[2]
+        cat_name = self._format_category_name(row[8], row[9]) if len(row) > 9 and row[8] is not None else row[2]
         return CategoryRule(
             id=row[0],
             keyword=row[1],
             category=cat_name,
             category_id=row[3] if len(row) > 3 else None,
             priority=row[4],
-            is_weak=bool(row[5]),
-            created_at=row[6],
-            updated_at=row[7],
-            ledger_id=row[8] if len(row) > 8 else None
+            is_weak=False,
+            created_at=row[5],
+            updated_at=row[6],
+            ledger_id=row[7] if len(row) > 7 else None
+        )
+
+    def _row_to_recurring_rule(self, row) -> RecurringRule:
+        if not row:
+            return None
+        cat_name = self._format_category_name(row[15], row[16]) if len(row) > 16 and row[15] is not None else row[5]
+        return RecurringRule(
+            id=row[0],
+            ledger_id=row[1],
+            amount=row[2] or 0.0,
+            keyword=row[3] or "",
+            category_id=row[4],
+            category=cat_name,
+            note=row[6] or "",
+            schedule_type=row[7] or "weekly",
+            schedule_value=self._normalize_schedule_values(row[8]) if len(row) > 8 else [1],
+            start_date=row[9],
+            end_date=row[10],
+            enabled=bool(row[11]) if len(row) > 11 else True,
+            include_in_budget=bool(row[12]) if len(row) > 12 and row[12] is not None else True,
+            created_at=row[13] if len(row) > 13 else "",
+            updated_at=row[14] if len(row) > 14 else "",
         )
 
     # Category Groups CRUD operations
@@ -1011,7 +1396,8 @@ class EnhancedDatabaseManager:
     # Analytics methods
     def get_spending_summary(self, start_date: str = None, end_date: str = None,
                              keyword: str = None, major: str = None,
-                             minor: str = None, ledger_id: Optional[int] = None) -> Dict[str, Any]:
+                             minor: str = None, ledger_id: Optional[int] = None,
+                             include_in_budget: Optional[bool] = None) -> Dict[str, Any]:
         """Get spending summary for a date range"""
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -1037,6 +1423,11 @@ class EnhancedDatabaseManager:
         if ledger_id is not None:
             base_query += ' AND b.ledger_id = ?'
             params.append(ledger_id)
+
+        if include_in_budget is True:
+            base_query += ' AND (b.include_in_budget = 1 OR b.include_in_budget IS NULL)'
+        elif include_in_budget is False:
+            base_query += ' AND b.include_in_budget = 0'
 
         if keyword:
             keyword_like = f'%{keyword}%'
