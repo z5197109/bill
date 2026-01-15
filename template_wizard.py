@@ -220,7 +220,8 @@ def build_match(lines: List[str]) -> Dict[str, Any]:
 
 def build_scope(lines: List[str]) -> Dict[str, Any]:
     print("\n[2/5] 配置 scope（裁剪有效区域，让行号更稳定）")
-    use_scope = _prompt_bool("是否启用 scope？", True)
+    # use_scope = _prompt_bool("是否启用 scope？", True)
+    use_scope = None
     if not use_scope:
         return {}
 
@@ -259,54 +260,56 @@ def _build_rule_common(scoped_lines: List[str], field_name: str, is_amount: bool
     print("  B) 用 anchor（anchor_any/anchor_regex）定位基准行，再相对取 line ——更稳")
     _print_lines(scoped_lines, f"当前 scoped_lines（用于配置 {field_name}）")
 
-    mode = _prompt("选择模式：A=按行号  B=按锚点", "A").upper()
+    # mode = _prompt("选择模式：A=按行号  B=按锚点", "A").upper()
+
+    mode = 'A'
 
     rule: Dict[str, Any] = {}
 
-    rule["search_window"] = _prompt_int("search_window（容错范围）", 2 if not is_amount else 1)
+    rule["search_window"] = 0 #_prompt_int("search_window（容错范围）", 2 if not is_amount else 1)
     rule["join_next"] = _prompt_int("join_next（拼接后续行数）", 0 if is_amount else 0)
     rule["clean"] = (False if is_amount else _prompt_bool("clean（是否清洗商品名）", True))
-    rule["skip_datetime_phone"] = _prompt_bool("skip_datetime_phone（跳过时间/掩码电话）", not is_amount)
+    rule["skip_datetime_phone"] =True # _prompt_bool("skip_datetime_phone（跳过时间/掩码电话）", not is_amount)
 
-    default_skip = []
-    if field_name == "item":
-        default_skip = ["订单信息", "服务保障", "申请开票", "付款方式", "运费", "店铺优惠", "平台优惠", "共减", "实付款"]
-    if field_name == "payee":
-        default_skip = ["付款方式", "订单信息", "服务保障", "申请开票"]
+    # default_skip = []
+    # if field_name == "item":
+    #     default_skip = ["订单信息", "服务保障", "申请开票", "付款方式", "运费", "店铺优惠", "平台优惠", "共减", "实付款"]
+    # if field_name == "payee":
+    #     default_skip = ["付款方式", "订单信息", "服务保障", "申请开票"]
 
-    skip_contains = _prompt_list("skip_contains（包含这些词则跳过；逗号分隔，可空）", default_skip)
-    if skip_contains:
-        rule["skip_contains"] = skip_contains
+    # skip_contains = _prompt_list("skip_contains（包含这些词则跳过；逗号分隔，可空）", default_skip)
+    # if skip_contains:
+    #     rule["skip_contains"] = skip_contains
 
     if is_amount:
         rule["require_regex"] = _prompt("require_regex（金额行必须匹配的正则）", r"(¥|￥)\s*\d")
-    else:
-        if _prompt_bool("是否设置 require_regex（可提高准确率）？", False):
-            rr = _prompt("require_regex（正则）", "")
-            if rr:
-                rule["require_regex"] = rr
+    # else:
+    #     if _prompt_bool("是否设置 require_regex（可提高准确率）？", False):
+    #         rr = _prompt("require_regex（正则）", "")
+    #         if rr:
+    #             rule["require_regex"] = rr
 
     if mode == "A":
         idx = _pick_line_index(scoped_lines, f"请选择 {field_name} 所在行号（scoped_lines 行号）: ", allow_blank=False)
         rule["line"] = idx
         return rule
 
-    aidx = _pick_line_index(scoped_lines, f"请选择 anchor 行号（{field_name} 相关标签所在行）: ", allow_blank=False)
-    anchor_line = scoped_lines[aidx]
-    print("anchor 可选两种：anchor_any（子串）或 anchor_regex（正则）")
-    if _prompt_bool("使用 anchor_regex？（否则用 anchor_any）", False):
-        ar = _prompt("anchor_regex（正则）", "")
-        if ar:
-            rule["anchor_regex"] = ar
-    else:
-        rule["anchor_any"] = _pick_substrings_from_line(anchor_line)
+    # aidx = _pick_line_index(scoped_lines, f"请选择 anchor 行号（{field_name} 相关标签所在行）: ", allow_blank=False)
+    # anchor_line = scoped_lines[aidx]
+    # print("anchor 可选两种：anchor_any（子串）或 anchor_regex（正则）")
+    # if _prompt_bool("使用 anchor_regex？（否则用 anchor_any）", False):
+    #     ar = _prompt("anchor_regex（正则）", "")
+    #     if ar:
+    #         rule["anchor_regex"] = ar
+    # else:
+    #     rule["anchor_any"] = _pick_substrings_from_line(anchor_line)
 
-    rule["offset"] = _prompt_int("offset（base=anchor行+offset）", 0)
-    rel = _prompt("line（相对 base 的行号；可填单个整数或逗号列表）", "0").strip()
-    if "," in rel:
-        rule["line"] = [int(x.strip()) for x in rel.split(",") if x.strip()]
-    else:
-        rule["line"] = int(rel)
+    # rule["offset"] = _prompt_int("offset（base=anchor行+offset）", 0)
+    # rel = _prompt("line（相对 base 的行号；可填单个整数或逗号列表）", "0").strip()
+    # if "," in rel:
+    #     rule["line"] = [int(x.strip()) for x in rel.split(",") if x.strip()]
+    # else:
+    #     rule["line"] = int(rel)
 
     return rule
 
@@ -322,8 +325,8 @@ def build_extract(scoped_lines: List[str]) -> Dict[str, Any]:
     arule["round"] = _prompt_int("round（保留小数位）", 2)
     extract["amount"] = arule
 
-    if _prompt_bool("是否配置 payee（收款方）？", False):
-        extract["payee"] = _build_rule_common(scoped_lines, "payee", is_amount=False)
+    # if _prompt_bool("是否配置 payee（收款方）？", False):
+    #     extract["payee"] = _build_rule_common(scoped_lines, "payee", is_amount=False)
 
     return extract
 
@@ -479,7 +482,7 @@ def run_wizard(
 def main():
     # ===================== 配置区：你只改这里 =====================
 
-    IMAGE_PATH = r"C:\Users\48948\Desktop\codes\bill\data\bills\2cc5b3e6f26c96900629ec3dceb3965.jpg"
+    IMAGE_PATH = r"C:\Users\48948\Desktop\codes\bill\data\bills\taobao order.jpg"
     TEMPLATES_PATH = r"C:\Users\48948\Desktop\codes\bill\templates.json"
 
     USE_GPU = True
