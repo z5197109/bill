@@ -28,9 +28,11 @@ import {
   ReloadOutlined,
   SaveOutlined,
   UploadOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons'
 import moment from 'moment'
 import Dashboard from './Dashboard'
+import { TemplateWizardModal } from './components'
 import './App.css'
 import './Dashboard.css'
 
@@ -280,6 +282,7 @@ function App() {
   const [ruleManageOpen, setRuleManageOpen] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState({ keyword: '', major: '', minor: '' })
   const [ruleFilter, setRuleFilter] = useState({ keyword: '', major: '', minor: '' })
+  const [templateWizardOpen, setTemplateWizardOpen] = useState(false)
 
   const [messageApi, contextHolder] = message.useMessage()
 
@@ -2059,6 +2062,12 @@ function App() {
                               <Button danger onClick={deleteLedger}>
                                 {t('ledger.delete')}
                               </Button>
+                              <Button 
+                                icon={<FileTextOutlined />} 
+                                onClick={() => setTemplateWizardOpen(true)}
+                              >
+                                账单模板
+                              </Button>
                             </Space>
                           </Form>
 
@@ -2544,9 +2553,19 @@ function App() {
                 </Row>
               </Tabs.TabPane>
             </Tabs>
-</Tabs.TabPane>
+          </Tabs.TabPane>
         </Tabs>
       </Layout.Content>
+
+      {/* Template Wizard Modal */}
+      <TemplateWizardModal
+        visible={templateWizardOpen}
+        onClose={() => setTemplateWizardOpen(false)}
+        onSuccess={() => {
+          message.success('模板创建成功')
+          setTemplateWizardOpen(false)
+        }}
+      />
     </Layout>
   )
 }

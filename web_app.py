@@ -1642,6 +1642,192 @@ def delete_recurring_rule(rule_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
+# === Template Management API Endpoints ===
+
+@app.route('/api/templates/ocr', methods=['POST'])
+def ocr_for_template():
+    """OCR识别图片，返回文本行用于创建模板"""
+    try:
+        init_processors(need_parser=True)
+        
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': '没有上传文件'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': '文件名为空'}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'success': False, 'error': '不支持的文件格式'}), 400
+        
+        # 读取文件内容
+        image_bytes = file.read()
+        
+        # 保存临时文件
+        temp_filename = f"temp_{uuid.uuid4().hex}.jpg"
+        temp_path = os.path.join('data', 'bills', temp_filename)
+        os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+        
+        with open(temp_path, 'wb') as f:
+            f.write(image_bytes)
+        
+        try:
+            # 预处理图片
+            processed_path, is_temp = bill_parser._preprocess_image(temp_path)
+            
+            try:
+                # OCR识别
+                ocr_lines = bill_parser.ocr_engine.run(processed_path, timeout=None)
+                lines = [str(getattr(x, "text", "") or "").strip() for x in ocr_lines]
+                lines = [l for l in lines if l]
+                
+                # 生成预览图
+                preview_base64 = _make_preview_base64(image_bytes, max_side=800, jpeg_quality=75)
+                
+                return jsonify({
+                    'success': True,
+                    'data': {
+                        'lines': lines,
+                        'preview': f"data:image/jpeg;base64,{preview_base64}",
+                        'temp_filename': temp_filename
+                    }
+                })
+            finally:
+                if is_temp and os.path.exists(processed_path):
+                    try:
+                        os.remove(processed_path)
+                    except OSError:
+                        pass
+        except Exception as e:
+            # 清理临时文件
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            raise e
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/templates', methods=['GET'])
+def get_templates():
+    """获取所有模板"""
+    try:
+        import json
+        templates_path = "templates.json"
+        
+        if not os.path.exists(templates_path):
+            return jsonify({'success': True, 'data': []})
+        
+        with open(templates_path, 'r', encoding='utf-8') as f:
+            templates = json.load(f)
+        
+        return jsonify({'success': True, 'data': templates})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/templates', methods=['POST'])
+def create_template():
+    """创建新模板"""
+    try:
+        import json
+        import shutil
+        from datetime import datetime
+        
+        data = request.get_json()
+        template = data.get('template')
+        
+        if not template:
+            return jsonify({'success': False, 'error': '模板数据为空'}), 400
+        
+        templates_path = "templates.json"
+        
+        # 读取现有模板
+        templates = []
+        if os.path.exists(templates_path):
+            # 备份
+            backup_path = f"{templates_path}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            shutil.copy2(templates_path, backup_path)
+            
+            with open(templates_path, 'r', encoding='utf-8') as f:
+                templates = json.load(f)
+        
+        # 检查是否已存在同名模板
+        template_name = template.get('name')
+        existing_index = None
+        for i, t in enumerate(templates):
+            if t.get('name') == template_name:
+                existing_index = i
+                break
+        
+        # 替换或添加
+        if existing_index is not None:
+            templates[existing_index] = template
+        else:
+            templates.append(template)
+        
+        # 保存
+        with open(templates_path, 'w', encoding='utf-8') as f:
+            json.dump(templates, f, ensure_ascii=False, indent=2)
+        
+        # 清理临时文件
+        temp_filename = data.get('temp_filename')
+        if temp_filename:
+            temp_path = os.path.join('data', 'bills', temp_filename)
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+        
+        return jsonify({
+            'success': True,
+            'message': '模板保存成功',
+            'data': template
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/templates/<template_name>', methods=['DELETE'])
+def delete_template(template_name):
+    """删除模板"""
+    try:
+        import json
+        import shutil
+        from datetime import datetime
+        
+        templates_path = "templates.json"
+        
+        if not os.path.exists(templates_path):
+            return jsonify({'success': False, 'error': '模板文件不存在'}), 404
+        
+        # 备份
+        backup_path = f"{templates_path}.bak_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        shutil.copy2(templates_path, backup_path)
+        
+        # 读取并过滤
+        with open(templates_path, 'r', encoding='utf-8') as f:
+            templates = json.load(f)
+        
+        filtered_templates = [t for t in templates if t.get('name') != template_name]
+        
+        if len(filtered_templates) == len(templates):
+            return jsonify({'success': False, 'error': '模板不存在'}), 404
+        
+        # 保存
+        with open(templates_path, 'w', encoding='utf-8') as f:
+            json.dump(filtered_templates, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({'success': True, 'message': '模板删除成功'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.errorhandler(413)
 def too_large(e):
     """Handle file too large error"""
