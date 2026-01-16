@@ -283,6 +283,7 @@ function App() {
   const [categoryFilter, setCategoryFilter] = useState({ keyword: '', major: '', minor: '' })
   const [ruleFilter, setRuleFilter] = useState({ keyword: '', major: '', minor: '' })
   const [templateWizardOpen, setTemplateWizardOpen] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
 
   const [messageApi, contextHolder] = message.useMessage()
 
@@ -501,28 +502,34 @@ function App() {
   }
 
   const deleteLedger = () => {
-    if (!currentLedgerId) return
-    Modal.confirm({
-      title: t('ledger.deleteConfirm'),
-      okText: t('ledger.delete'),
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        try {
-          const res = await fetch(`/api/ledgers/${currentLedgerId}`, { method: 'DELETE' })
-          const data = await res.json()
-          if (data.success) {
-            pushToast(t('toasts.ledgerDeleted'), 'success')
-            setCurrentLedgerId(null)
-            loadLedgers()
-          } else {
-            pushToast(data.error || t('toasts.ledgerDeleteFail'), 'error')
-          }
-        } catch {
-          pushToast(t('toasts.ledgerDeleteFail'), 'error')
-        }
-      },
-    })
+    if (!currentLedgerId) {
+      message.warning('请先选择一个账本')
+      return
+    }
+    setDeleteConfirmOpen(true)
+  }
+
+  const handleDeleteConfirm = async () => {
+    try {
+      const res = await fetch(`/api/ledgers/${currentLedgerId}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.ledgerDeleted'), 'success')
+        setCurrentLedgerId(null)
+        loadLedgers()
+        // Refresh page after successful deletion
+        setTimeout(() => {
+          window.location.reload()
+        }, 500)
+      } else {
+        pushToast(data.error || t('toasts.ledgerDeleteFail'), 'error')
+      }
+    } catch (err) {
+      console.error('Delete error:', err)
+      pushToast(t('toasts.ledgerDeleteFail'), 'error')
+    } finally {
+      setDeleteConfirmOpen(false)
+    }
   }
 
   const loadCategories = async () => {
@@ -2055,20 +2062,22 @@ function App() {
                                 </Form.Item>
                               </Col>
                             </Row>
-                            <Space>
-                              <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
-                                {t('ledger.save')}
-                              </Button>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Space>
+                                <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
+                                  {t('ledger.save')}
+                                </Button>
+                                <Button 
+                                  icon={<FileTextOutlined />} 
+                                  onClick={() => setTemplateWizardOpen(true)}
+                                >
+                                  账单模板
+                                </Button>
+                              </Space>
                               <Button danger onClick={deleteLedger}>
                                 {t('ledger.delete')}
                               </Button>
-                              <Button 
-                                icon={<FileTextOutlined />} 
-                                onClick={() => setTemplateWizardOpen(true)}
-                              >
-                                账单模板
-                              </Button>
-                            </Space>
+                            </div>
                           </Form>
 
                           <Divider style={{ borderTop: '2px solid #bfbfbf', margin: '20px 0' }} />
@@ -2566,6 +2575,23 @@ function App() {
           setTemplateWizardOpen(false)
         }}
       />
+
+      {/* Delete Ledger Confirmation Modal */}
+      <Modal
+        title="确认删除"
+        visible={deleteConfirmOpen}
+        onOk={handleDeleteConfirm}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        okText={t('ledger.delete')}
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+        style={{ top: '20%' }}
+      >
+        <p>{t('ledger.deleteConfirm')}</p>
+        <p style={{ color: '#ff4d4f', marginTop: 8 }}>
+          此操作将删除账本及其所有账单数据，是否继续？
+        </p>
+      </Modal>
     </Layout>
   )
 }

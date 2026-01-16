@@ -310,6 +310,7 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
       width={800}
       footer={null}
       destroyOnClose
+      style={{ top: '20%' }}
     >
       <Steps current={current} style={{ marginBottom: 24 }}>
         {steps.map((item, index) => (

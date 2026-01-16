@@ -11,7 +11,13 @@ export default defineConfig({
       libList: [
         {
           libName: 'antd',
-          style: (name) => `antd/es/${name}/style`,
+          style: (name) => {
+            // App组件不需要单独的样式导入
+            if (name === 'app') {
+              return false
+            }
+            return `antd/es/${name}/style`
+          },
         },
       ],
     }),
