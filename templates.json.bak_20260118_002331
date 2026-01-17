@@ -50,6 +50,7 @@
       }
     }
   },
+  
   {
     "name": "fallback_by_position",
     "priority": 0,
@@ -189,40 +190,6 @@
         "skip_datetime_phone": false,
         "require_regex": "(¥|￥)\\s*\\d",
         "line": 5,
-        "money_pick": "max_abs",
-        "abs": true,
-        "round": 2
-      }
-    }
-  },
-  {
-    "name": "pdd订单详情",
-    "priority": 90,
-    "match": {
-      "any": [
-        "拼多多",
-        "订单确认，已通知商家配货",
-        "设为匿名",
-        "催发货",
-        "再次拼单",
-        "7天无理由退货>",
-        "拼单即将同步到拼小圈?，点击取消"
-      ],
-      "min_score": 1
-    },
-    "scope": {},
-    "extract": {
-      "item": {
-        "line": 12,
-        "search_window": 0,
-        "join_next": 0,
-        "clean": true,
-        "skip_datetime_phone": true
-      },
-      "amount": {
-        "line": 13,
-        "search_window": 0,
-        "require_regex": "(¥|￥)\\s*\\d",
         "money_pick": "max_abs",
         "abs": true,
         "round": 2

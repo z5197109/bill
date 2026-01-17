@@ -7,7 +7,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import config
-from app.bill_parser import BillParser
+from app.bill_parser import BillParser, _load_templates_from_file, _compile_template
 from app.storage import ExcelSaver, DatabaseSaver
 from app.enhanced_storage import EnhancedDatabaseManager, EnhancedBill, CategoryRule, CategoryGroup, RecurringRule
 from datetime import date
@@ -1773,6 +1773,12 @@ def create_template():
         # 保存
         with open(templates_path, 'w', encoding='utf-8') as f:
             json.dump(templates, f, ensure_ascii=False, indent=2)
+
+        # Reload templates for the running parser
+        if bill_parser is not None:
+            raw_templates = _load_templates_from_file(templates_path)
+            bill_parser.templates = [_compile_template(x) for x in raw_templates]
+            bill_parser.templates.sort(key=lambda t: t.priority, reverse=True)
         
         # 清理临时文件
         temp_filename = data.get('temp_filename')
