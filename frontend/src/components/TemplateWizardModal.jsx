@@ -33,6 +33,8 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
     item: null,
     amount: null
   })
+  const [selectedKeywordLines, setSelectedKeywordLines] = useState([])
+  const [selectionMode, setSelectionMode] = useState('field') // 'field' or 'keyword'
 
   // Step 1: 上传图片并OCR
   const handleUpload = async (file) => {
@@ -64,11 +66,16 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
   }
 
   // Step 2: 配置模板
-  const handleNext = () => {
+  const handleNext = async () => {
     if (current === 1) {
       // 验证是否选择了必要的行
       if (selectedLines.item === null || selectedLines.amount === null) {
         message.warning('请至少选择商品名称和金额所在行')
+        return
+      }
+      try {
+        await form.validateFields(['matchKeywords'])
+      } catch {
         return
       }
     }
@@ -85,11 +92,12 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
       const values = await form.validateFields()
       setLoading(true)
 
+      const matchKeywords = form.getFieldValue('matchKeywords') || values.matchKeywords
       const template = {
         name: values.name,
         priority: values.priority || 90,
         match: {
-          any: values.matchKeywords ? values.matchKeywords.split(',').map(k => k.trim()) : [],
+          any: matchKeywords ? matchKeywords.split(',').map(k => k.trim()) : [],
           min_score: 1
         },
         scope: {},
@@ -149,6 +157,8 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
     setCurrent(0)
     setOcrData(null)
     setSelectedLines({ item: null, amount: null })
+    setSelectedKeywordLines([])
+    setSelectionMode('field')
     form.resetFields()
     if (onClose) {
       onClose()
@@ -182,13 +192,32 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
       content: ocrData && (
         <div>
           <Alert
-            message="请选择商品名称和金额所在的行号"
-            description="点击行号可以选择该行作为对应字段"
+            message={selectionMode === 'field' ? '请选择商品名称和金额所在的行号（再次点击可取消选择）' : '请点击行号选择匹配关键词（可多选，再次点击可取消）'}
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
           />
-          
+
+          <div style={{ marginBottom: 16 }}>
+            <Space>
+              <Text strong>选择模式：</Text>
+              <Button
+                type={selectionMode === 'field' ? 'primary' : 'default'}
+                size="small"
+                onClick={() => setSelectionMode('field')}
+              >
+                选择字段
+              </Button>
+              <Button
+                type={selectionMode === 'keyword' ? 'primary' : 'default'}
+                size="small"
+                onClick={() => setSelectionMode('keyword')}
+              >
+                选择关键词
+              </Button>
+            </Space>
+          </div>
+
           <div style={{ display: 'flex', gap: 16 }}>
             {/* OCR结果列表 */}
             <div style={{ flex: 1 }}>
@@ -198,38 +227,84 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
                 bordered
                 dataSource={ocrData.lines}
                 style={{ maxHeight: 400, overflow: 'auto' }}
-                renderItem={(line, index) => (
-                  <List.Item
-                    style={{
-                      cursor: 'pointer',
-                      backgroundColor:
-                        selectedLines.item === index
-                          ? '#e6f7ff'
-                          : selectedLines.amount === index
-                          ? '#fff7e6'
-                          : 'white'
-                    }}
-                    onClick={() => {
-                      // 简单逻辑：如果还没选item，就选item；否则选amount
-                      if (selectedLines.item === null) {
-                        setSelectedLines({ ...selectedLines, item: index })
-                      } else if (selectedLines.amount === null) {
-                        setSelectedLines({ ...selectedLines, amount: index })
-                      } else {
-                        // 都选了，就重新选item
-                        setSelectedLines({ item: index, amount: null })
-                      }
-                    }}
-                  >
-                    <Space>
-                      <Tag color="blue">{index}</Tag>
-                      <Text>{line}</Text>
-                      {selectedLines.item === index && <Tag color="cyan">商品名称</Tag>}
-                      {selectedLines.amount === index && <Tag color="orange">金额</Tag>}
-                    </Space>
-                  </List.Item>
-                )}
+                renderItem={(line, index) => {
+                  const isItem = selectedLines.item === index
+                  const isAmount = selectedLines.amount === index
+                  const isKeyword = selectedKeywordLines.includes(index)
+
+                  let backgroundColor = 'white'
+                  if (isItem) backgroundColor = '#e6f7ff'
+                  else if (isAmount) backgroundColor = '#fff7e6'
+                  else if (isKeyword) backgroundColor = '#f6ffed'
+
+                  return (
+                    <List.Item
+                      style={{
+                        cursor: 'pointer',
+                        backgroundColor
+                      }}
+                      onClick={() => {
+                        if (selectionMode === 'field') {
+                          // 字段选择模式：点击已选行可取消，否则按顺序选择
+                          if (isItem) {
+                            // 取消选择商品名称行
+                            setSelectedLines({ ...selectedLines, item: null })
+                          } else if (isAmount) {
+                            // 取消选择金额行
+                            setSelectedLines({ ...selectedLines, amount: null })
+                          } else if (selectedLines.item === null) {
+                            // 选择商品名称行
+                            setSelectedLines({ ...selectedLines, item: index })
+                          } else if (selectedLines.amount === null) {
+                            // 选择金额行
+                            setSelectedLines({ ...selectedLines, amount: index })
+                          } else {
+                            // 都选了，重新选item
+                            setSelectedLines({ item: index, amount: null })
+                          }
+                        } else {
+                          // 关键词选择模式：点击切换选中状态
+                          const newKeywordLines = isKeyword
+                            ? selectedKeywordLines.filter(i => i !== index)
+                            : [...selectedKeywordLines, index]
+                          setSelectedKeywordLines(newKeywordLines)
+
+                          // 同步到表单字段
+                          const keywords = newKeywordLines.map(i => ocrData.lines[i]).join(',')
+                          form.setFieldsValue({ matchKeywords: keywords })
+                        }
+                      }}
+                    >
+                      <Space>
+                        <Tag color={isKeyword ? 'green' : 'blue'}>{index}</Tag>
+                        <Text>{line}</Text>
+                        {isItem && <Tag color="cyan">商品名称</Tag>}
+                        {isAmount && <Tag color="orange">金额</Tag>}
+                        {isKeyword && <Tag color="green">关键词</Tag>}
+                      </Space>
+                    </List.Item>
+                  )
+                }}
               />
+              <div style={{ marginTop: 8 }}>
+                <Text strong>已选择：</Text>
+                <div style={{ marginTop: 8 }}>
+                  <Text>商品名称行 {selectedLines.item !== null ? selectedLines.item : '未选择'}</Text>
+                  <br />
+                  <Text>金额行 {selectedLines.amount !== null ? selectedLines.amount : '未选择'}</Text>
+                  <br />
+                  <Text>关键词行 {selectedKeywordLines.length > 0 ? selectedKeywordLines.join(', ') : '未选择'}</Text>
+                </div>
+              </div>
+              <Form.Item
+                label="匹配关键词"
+                name="matchKeywords"
+                rules={[{ required: true, message: '请输入匹配关键词' }]}
+                extra="点击上方行号选择，或用逗号分隔多个关键词"
+                style={{ marginTop: 12 }}
+              >
+                <Input placeholder="订单信息,实付款" />
+              </Form.Item>
             </div>
 
             {/* 预览图 */}
@@ -243,29 +318,13 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
             </div>
           </div>
 
-          <Divider />
-
-          <div>
-            <Text strong>已选择：</Text>
-            <div style={{ marginTop: 8 }}>
-              <Text>商品名称行: {selectedLines.item !== null ? selectedLines.item : '未选择'}</Text>
-              <br />
-              <Text>金额行: {selectedLines.amount !== null ? selectedLines.amount : '未选择'}</Text>
-            </div>
-          </div>
         </div>
       )
     },
     {
       title: '配置模板',
       content: (
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{
-            priority: 90
-          }}
-        >
+        <>
           <Form.Item
             label="模板名称"
             name="name"
@@ -274,14 +333,6 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
             <Input placeholder="例如: taobao_order_detail" />
           </Form.Item>
 
-          <Form.Item
-            label="匹配关键词"
-            name="matchKeywords"
-            rules={[{ required: true, message: '请输入匹配关键词' }]}
-            extra="用逗号分隔多个关键词，例如: 订单信息,实付款"
-          >
-            <Input placeholder="订单信息,实付款" />
-          </Form.Item>
 
           <Form.Item
             label="优先级"
@@ -291,13 +342,7 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
             <InputNumber min={1} max={200} style={{ width: '100%' }} />
           </Form.Item>
 
-          <Form.Item
-            label="分类"
-            name="category"
-          >
-            <Input placeholder="可选，例如: 购物" />
-          </Form.Item>
-        </Form>
+        </>
       )
     }
   ]
@@ -318,9 +363,17 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
         ))}
       </Steps>
 
-      <div style={{ minHeight: 300 }}>
-        {steps[current].content}
-      </div>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{
+          priority: 90
+        }}
+      >
+        <div style={{ minHeight: 300 }}>
+          {steps[current].content}
+        </div>
+      </Form>
 
       <Divider />
 
