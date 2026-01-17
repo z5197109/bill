@@ -1,4 +1,4 @@
-import { Card, Spin, Typography } from 'antd'
+import { Card, Spin, Tooltip, Typography } from 'antd'
 import PropTypes from 'prop-types'
 
 const { Text } = Typography
@@ -175,7 +175,17 @@ function BudgetStatusCard({ budgetInfo, loading }) {
         {/* Budget Health Message（✅ 绿/橙/红 三档） */}
         <div style={{ marginTop: '12px', padding: '8px', backgroundColor: msgBg, borderRadius: '4px' }}>
           <Text style={{ fontSize: '13px', color: msgColor }}>
-            {getBudgetHealthMessage(totalBudget, remainingBudget, usedPercentage, timeProgress)}
+            {(() => {
+              const healthMessage = getBudgetHealthMessage(totalBudget, remainingBudget, usedPercentage, timeProgress)
+              if (healthMessage.detail) {
+                return (
+                  <Tooltip title={healthMessage.detail}>
+                    <span style={{ cursor: "help" }}>{healthMessage.summary}</span>
+                  </Tooltip>
+                )
+              }
+              return healthMessage.summary
+            })()}
           </Text>
         </div>
       </div>
@@ -214,60 +224,62 @@ function getBudgetHealthMessage(totalBudget, remainingBudget, usedPercentage, ti
   const m = now.getMonth() // 0-11
   const daysInMonth = new Date(y, m + 1, 0).getDate()
   const day = now.getDate()
-  const remainingDays = Math.max(0, daysInMonth - day) // 不含今天
+  const remainingDays = Math.max(0, daysInMonth - day)
   const remainingDaysForCalc = Math.max(1, remainingDays)
 
-  // 你当前把 paceMsg 注释了，这里保持空字符串也兼容；
-  // 如果后面想恢复，也不会影响 JSX 结构
   const diff = usedPercentage - timeProgress
   let paceMsg = ''
 
   const baseDaily = totalBudget > 0 ? totalBudget / daysInMonth : 0
   const remainingDaily = remainingDaysForCalc > 0 ? remainingBudget / remainingDaysForCalc : remainingBudget
 
-  // 小工具：避免 paceMsg 为空时多余空格
   const Pace = () => (paceMsg ? <span>{paceMsg} </span> : null)
 
-  // 超预算：预算缺口 +（可选）日均需少花
   if (remainingBudget < 0) {
     const deficit = Math.abs(remainingBudget)
-    const dailyNeedCut = deficit / remainingDaysForCalc
 
-    return (
-      <span>
-        <Pace />
-        本月剩余 <b>{remainingDays}</b> 天，预算缺口 <b>¥{formatAmount(deficit)}</b>
-        {/* 你原来注释掉的部分，如果想要就取消注释 */}
-        {/* ，日均需少花 <b>¥{formatAmount(dailyNeedCut)}</b> 才能回到预算内。 */}
-        。
-      </span>
-    )
+    return {
+      summary: (
+        <span>
+          <Pace />
+          本月剩余 <b>{remainingDays}</b> 天，预算缺口 <b>¥{formatAmount(deficit)}</b>
+        </span>
+      ),
+      detail: null
+    }
   }
 
-  // 未设置预算：只展示剩余日均可用
   if (!totalBudget || totalBudget <= 0) {
-    return (
-      <span>
-        <Pace />
-        本月剩余 <b>{remainingDays}</b> 天，日均可用 <b>¥{formatAmount(remainingDaily)}</b>。
-      </span>
-    )
+    return {
+      summary: (
+        <span>
+          <Pace />
+          本月剩余 <b>{remainingDays}</b> 天，日均可用 <b>¥{formatAmount(remainingDaily)}</b>
+        </span>
+      ),
+      detail: null
+    }
   }
 
-  // 日均趋势：与“月均日预算”对比
   const delta = remainingDaily - baseDaily
   const up = delta >= 0
   const arrow = up ? '📈' : '📉'
   const trendWord = up ? '提高' : '下降'
 
-  return (
-    <span>
-      <Pace />
-      本月剩余 <b>{remainingDays}</b> 天，日均可用 <b>¥{formatAmount(remainingDaily)}</b>；<br />
-      较月均日预算 <b>¥{formatAmount(baseDaily)}</b>/天 {trendWord}{' '}
-      <b>¥{formatAmount(Math.abs(delta))}</b>/天 {arrow}。
-    </span>
-  )
+  return {
+    summary: (
+      <span>
+        <Pace />
+        本月剩余 <b>{remainingDays}</b> 天，日均可用 <b>¥{formatAmount(remainingDaily)}</b>
+      </span>
+    ),
+    detail: (
+      <span>
+        较月均日预算 <b>¥{formatAmount(baseDaily)}</b>/天 {trendWord}{' '}
+        <b>¥{formatAmount(Math.abs(delta))}</b>/天 {arrow}。
+      </span>
+    )
+  }
 }
 
 
