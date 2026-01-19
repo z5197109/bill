@@ -219,6 +219,7 @@ function App() {
   const [results, setResults] = useState([])
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [autoOpenMinorFor, setAutoOpenMinorFor] = useState(null)
 
   const [analyticsFilters, setAnalyticsFilters] = useState({
     keyword: '',
@@ -348,6 +349,35 @@ function App() {
     const sorted = [...rules].sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0))
     const hit = sorted.find((r) => needle.includes((r.keyword || '').toLowerCase()))
     return hit ? hit.category : ''
+  }
+
+  const resolveCategoryInfo = (categoryName) => {
+    const trimmed = String(categoryName || '').trim()
+    if (!trimmed) {
+      return { category: '', category_id: null, major: '', minor: '' }
+    }
+    const direct = categories.find((c) => c.full_name === trimmed)
+    if (direct) {
+      return {
+        category: direct.full_name,
+        category_id: direct.id,
+        major: direct.major,
+        minor: direct.minor,
+      }
+    }
+    const parts = trimmed.split('/')
+    const major = (parts[0] || '').trim()
+    const minor = (parts[1] || '').trim()
+    const byParts = categories.find((c) => c.major === major && c.minor === minor)
+    if (byParts) {
+      return {
+        category: byParts.full_name,
+        category_id: byParts.id,
+        major: byParts.major,
+        minor: byParts.minor,
+      }
+    }
+    return { category: trimmed, category_id: null, major, minor }
   }
 
   const majorOptions = useMemo(
@@ -1020,12 +1050,17 @@ function App() {
 
   const mapResult = (r, isManual = false) => {
     const auto = !r.category ? autoDetectCategory(r.merchant || r.filename) : ''
+    const categoryName = r.category || auto || ''
+    const resolved = resolveCategoryInfo(categoryName)
     return {
       clientId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       filename: r.filename || `manual-${Date.now()}`,
       merchant: r.merchant || '',
       amount: Number(r.amount || 0),
-      category: r.category || auto || '',
+      category: resolved.category,
+      category_id: resolved.category_id,
+      major: resolved.major,
+      minor: resolved.minor,
       bill_date: r.bill_date || uploadDate,
       ledger_id: currentLedgerId,
       raw_text: r.raw_text || [],
@@ -1078,14 +1113,58 @@ function App() {
     setResults((prev) =>
       prev.map((item) => {
         if (item.clientId !== id) return item
+        if (field === 'major') {
+          return {
+            ...item,
+            major: value || '',
+            minor: '',
+            category_id: null,
+            category: '',
+          }
+        }
+        if (field === 'category_id') {
+          const match = categories.find((c) => c.id === value)
+          return {
+            ...item,
+            category_id: value || null,
+            category: match ? match.full_name : '',
+            major: match ? match.major : item.major,
+            minor: match ? match.minor : '',
+          }
+        }
         const next = { ...item, [field]: value }
         if (field === 'merchant') {
           const auto = autoDetectCategory(value)
-          if (auto) next.category = auto
+          if (auto) {
+            const resolved = resolveCategoryInfo(auto)
+            return {
+              ...next,
+              category: resolved.category,
+              category_id: resolved.category_id,
+              major: resolved.major,
+              minor: resolved.minor,
+            }
+          }
         }
         return next
       }),
     )
+  }
+
+  const handleResultMajorChange = (id, value) => {
+    updateResult(id, 'major', value || '')
+    if (value) {
+      setAutoOpenMinorFor(id)
+    } else if (autoOpenMinorFor === id) {
+      setAutoOpenMinorFor(null)
+    }
+  }
+
+  const handleResultMinorChange = (id, value) => {
+    updateResult(id, 'category_id', value || null)
+    if (autoOpenMinorFor === id) {
+      setAutoOpenMinorFor(null)
+    }
   }
 
   const toggleResult = (id, checked) => {
@@ -1109,7 +1188,8 @@ function App() {
           filename: r.filename || 'manual',
           merchant: r.merchant || '',
           amount: Number(r.amount || 0),
-          category: r.category || '',
+          category: r.category || (r.category_id ? categoryById.get(r.category_id)?.full_name || '' : ''),
+          category_id: r.category_id,
           bill_date: r.bill_date || uploadDate,
           is_manual: r.is_manual,
           ledger_id: currentLedgerId,
@@ -1316,7 +1396,7 @@ function App() {
       title: t('upload.headers')[2],
       dataIndex: 'amount',
       key: 'amount',
-      width: 120,
+      width: 100,
       render: (_, record) => (
         <InputNumber
           min={0}
@@ -1330,15 +1410,45 @@ function App() {
       title: t('upload.headers')[3],
       dataIndex: 'category',
       key: 'category',
-      width: 180,
+      width: 220,
       render: (_, record) => (
-        <Select value={record.category} onChange={(value) => updateResult(record.clientId, 'category', value)} allowClear>
-          {categories.map((c) => (
-            <Select.Option key={c.id} value={c.full_name}>
-              {c.full_name}
-            </Select.Option>
-          ))}
-        </Select>
+        <Space size="small">
+          <Select
+            value={record.major || undefined}
+            placeholder={t('config.major')}
+            onChange={(value) => handleResultMajorChange(record.clientId, value)}
+            allowClear
+            style={{ minWidth: 100 }}
+          >
+            {majorOptions.map((m) => (
+              <Select.Option key={`upload-major-${m}`} value={m}>
+                {m}
+              </Select.Option>
+            ))}
+          </Select>
+          <Select
+            value={record.category_id ?? undefined}
+            placeholder={t('config.minor')}
+            onChange={(value) => handleResultMinorChange(record.clientId, value)}
+            open={autoOpenMinorFor === record.clientId && !!record.major}
+            onDropdownVisibleChange={(open) => {
+              if (!open && autoOpenMinorFor === record.clientId) {
+                setAutoOpenMinorFor(null)
+              }
+            }}
+            allowClear
+            disabled={!record.major}
+            style={{ minWidth: 100 }}
+          >
+            {categories
+              .filter((c) => c.major === record.major)
+              .map((c) => (
+                <Select.Option key={`upload-minor-${c.id}`} value={c.id}>
+                  {c.minor || c.full_name}
+                </Select.Option>
+              ))}
+          </Select>
+        </Space>
       ),
     },
     {
