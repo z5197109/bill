@@ -77,10 +77,10 @@ const I18N = {
       keywordPH: '关键词',
       allMajors: '全部大类',
       allMinors: '全部小类',
-      rangeToday: '今天',
-      rangeWeek: '7天',
-      rangeMonth: '1个月',
-      rangeYear: '1年',
+      rangeToday: '当天',
+      rangeWeek: '当周',
+      rangeMonth: '当月',
+      rangeYear: '当年',
       refresh: '刷新',
       reset: '重置',
       totalAmount: '总金额',
@@ -263,9 +263,10 @@ function App() {
   const [recurringForm, setRecurringForm] = useState({
     amount: '',
     keyword: '',
+    major: '',
+    minor: '',
     category_id: null,
     category: '',
-    note: '',
     schedule_type: 'weekly',
     schedule_value: [1],
     start_date: today(),
@@ -369,6 +370,16 @@ function App() {
     if (!ruleForm.major) return []
     return categories.filter((c) => c.major === ruleForm.major)
   }, [categories, ruleForm.major])
+
+  const recurringMajorOptions = useMemo(
+    () => Array.from(new Set(categories.map((c) => c.major))).filter(Boolean),
+    [categories],
+  )
+
+  const recurringMinorOptions = useMemo(() => {
+    if (!recurringForm.major) return []
+    return categories.filter((c) => c.major === recurringForm.major)
+  }, [categories, recurringForm.major])
 
   const weekdayOptions = [
     { label: '周一', value: 1 },
@@ -811,6 +822,26 @@ function App() {
     return Array.from(new Set(normalized)).sort((a, b) => a - b)
   }
 
+  const handleRecurringMajorChange = (value) => {
+    setRecurringForm((prev) => ({
+      ...prev,
+      major: value || '',
+      minor: '',
+      category: '',
+      category_id: null,
+    }))
+  }
+
+  const handleRecurringMinorChange = (value) => {
+    const match = categories.find((c) => c.id === value)
+    setRecurringForm((prev) => ({
+      ...prev,
+      minor: match?.minor || '',
+      category: match?.full_name || '',
+      category_id: match ? match.id : null,
+    }))
+  }
+
   const handleRecurringCategoryChange = (value) => {
     const match = categories.find((c) => c.id === value)
     setRecurringForm((prev) => ({
@@ -851,6 +882,32 @@ function App() {
       prev.map((item) =>
         item.id === id
           ? { ...item, category_id: value || null, category: match ? match.full_name : '' }
+          : item,
+      ),
+    )
+  }
+
+  const handleRecurringRuleMajorChange = (id, value) => {
+    setRecurringRules((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, major: value || '', minor: '', category_id: null, category: '' }
+          : item,
+      ),
+    )
+  }
+
+  const handleRecurringRuleMinorChange = (id, value) => {
+    const match = categories.find((c) => c.id === value)
+    setRecurringRules((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { 
+              ...item, 
+              minor: match?.minor || '', 
+              category_id: value || null, 
+              category: match ? match.full_name : '' 
+            }
           : item,
       ),
     )
@@ -904,7 +961,6 @@ function App() {
       keyword: recurringForm.keyword,
       category_id: recurringForm.category_id,
       category: recurringForm.category,
-      note: recurringForm.note,
       schedule_type: recurringForm.schedule_type,
       schedule_value: scheduleValues,
       start_date: recurringForm.start_date,
@@ -925,9 +981,10 @@ function App() {
         setRecurringForm({
           amount: '',
           keyword: '',
+          major: '',
+          minor: '',
           category_id: null,
           category: '',
-          note: '',
           schedule_type: 'weekly',
           schedule_value: [1],
           start_date: today(),
@@ -958,7 +1015,6 @@ function App() {
       keyword: record.keyword,
       category_id: record.category_id,
       category: record.category,
-      note: record.note,
       schedule_type: record.schedule_type,
       schedule_value: scheduleValues,
       start_date: record.start_date,
@@ -1524,25 +1580,56 @@ function App() {
       ),
     },
     {
-      title: t('recurring.category'),
-      dataIndex: 'category_id',
-      key: 'category',
-      width: 180,
-      render: (_, record) => (
-        <Select
-          value={record.category_id ?? undefined}
-          placeholder={record.category || t('recurring.category')}
-          onChange={(value) => handleRecurringRuleCategoryChange(record.id, value)}
-          onBlur={() => saveRecurringRule(record)}
-          allowClear
-        >
-          {categories.map((c) => (
-            <Select.Option key={c.id} value={c.id}>
-              {c.full_name}
-            </Select.Option>
-          ))}
-        </Select>
-      ),
+      title: t('config.major'),
+      dataIndex: 'major',
+      key: 'major',
+      width: 120,
+      render: (_, record) => {
+        const currentCategory = categories.find(c => c.id === record.category_id)
+        const majorValue = currentCategory?.major || ''
+        return (
+          <Select
+            value={majorValue || undefined}
+            placeholder={t('config.major')}
+            onChange={(value) => handleRecurringRuleMajorChange(record.id, value)}
+            onBlur={() => saveRecurringRule(record)}
+            allowClear
+          >
+            {recurringMajorOptions.map((m) => (
+              <Select.Option key={m} value={m}>
+                {m}
+              </Select.Option>
+            ))}
+          </Select>
+        )
+      },
+    },
+    {
+      title: t('config.minor'),
+      dataIndex: 'minor',
+      key: 'minor',
+      width: 140,
+      render: (_, record) => {
+        const currentCategory = categories.find(c => c.id === record.category_id)
+        const majorValue = currentCategory?.major || ''
+        const minorOptions = categories.filter(c => c.major === majorValue)
+        return (
+          <Select
+            value={record.category_id ?? undefined}
+            placeholder={t('config.minor')}
+            onChange={(value) => handleRecurringRuleMinorChange(record.id, value)}
+            onBlur={() => saveRecurringRule(record)}
+            disabled={!majorValue}
+            allowClear
+          >
+            {minorOptions.map((c) => (
+              <Select.Option key={c.id} value={c.id}>
+                {c.minor || c.full_name}
+              </Select.Option>
+            ))}
+          </Select>
+        )
+      },
     },
     {
       title: t('recurring.scheduleType'),
@@ -1564,7 +1651,7 @@ function App() {
       title: t('recurring.scheduleValue'),
       dataIndex: 'schedule_value',
       key: 'schedule_value',
-      width: 285,
+      width: 320,
       render: (_, record) => (
         <Select
           mode="multiple"
@@ -1603,19 +1690,6 @@ function App() {
           }
           onBlur={() => saveRecurringRule(record)}
           style={{ width: '100%' }}
-        />
-      ),
-    },
-    {
-      title: t('recurring.note'),
-      dataIndex: 'note',
-      key: 'note',
-      width: 240,
-      render: (_, record) => (
-        <Input
-          value={record.note}
-          onChange={(e) => updateRecurringRuleField(record.id, 'note', e.target.value)}
-          onBlur={() => saveRecurringRule(record)}
         />
       ),
     },
@@ -2062,7 +2136,7 @@ function App() {
                                 </Form.Item>
                               </Col>
                             </Row>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}>
                               <Space>
                                 <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
                                   {t('ledger.save')}
@@ -2074,9 +2148,6 @@ function App() {
                                   账单模板
                                 </Button>
                               </Space>
-                              <Button danger onClick={deleteLedger}>
-                                {t('ledger.delete')}
-                              </Button>
                             </div>
                           </Form>
 
@@ -2137,42 +2208,51 @@ function App() {
                                   </Form.Item>
                                 </Col>
                                 <Col xs={24} md={6}>
-                                  <Form.Item label={t('recurring.category')}>
+                                  <Form.Item label={t('config.major')}>
                                     <Select
-                                      value={recurringForm.category_id ?? undefined}
-                                      placeholder={t('recurring.category')}
-                                      onChange={handleRecurringCategoryChange}
+                                      value={recurringForm.major || undefined}
+                                      placeholder={t('config.major')}
+                                      onChange={handleRecurringMajorChange}
                                       allowClear
                                     >
-                                      {categories.map((c) => (
-                                        <Select.Option key={c.id} value={c.id}>
-                                          {c.full_name}
+                                      {recurringMajorOptions.map((m) => (
+                                        <Select.Option key={m} value={m}>
+                                          {m}
                                         </Select.Option>
                                       ))}
                                     </Select>
                                   </Form.Item>
                                 </Col>
                                 <Col xs={24} md={6}>
-                                  <Form.Item label={t('recurring.note')}>
-                                    <Input
-                                      value={recurringForm.note}
-                                      onChange={(e) => setRecurringForm({ ...recurringForm, note: e.target.value })}
-                                    />
+                                  <Form.Item label={t('config.minor')}>
+                                    <Select
+                                      value={recurringForm.category_id ?? undefined}
+                                      placeholder={t('config.minor')}
+                                      onChange={handleRecurringMinorChange}
+                                      disabled={!recurringForm.major}
+                                      allowClear
+                                    >
+                                      {recurringMinorOptions.map((c) => (
+                                        <Select.Option key={c.id} value={c.id}>
+                                          {c.minor || c.full_name}
+                                        </Select.Option>
+                                      ))}
+                                    </Select>
                                   </Form.Item>
                                 </Col>
                               </Row>
-                          <Row gutter={12} align="middle">
-                            <Col xs={24} md={6}>
-                              <Form.Item label={t('recurring.scheduleType')}>
-                                <Select
-                                  value={recurringForm.schedule_type}
-                                  onChange={handleRecurringScheduleTypeChange}
-                                >
-                                  <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
-                                  <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
-                                </Select>
-                              </Form.Item>
-                            </Col>
+                              <Row gutter={12}>
+                                <Col xs={24} md={6}>
+                                  <Form.Item label={t('recurring.scheduleType')}>
+                                    <Select
+                                      value={recurringForm.schedule_type}
+                                      onChange={handleRecurringScheduleTypeChange}
+                                    >
+                                      <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
+                                      <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
+                                    </Select>
+                                  </Form.Item>
+                                </Col>
                                 <Col xs={24} md={6}>
                                   <Form.Item
                                     label={
@@ -2285,6 +2365,23 @@ function App() {
                             {t('ledger.create')}
                           </Button>
                         </Form>
+                      </Card>
+                    </Col>
+                    <Col span={24}>
+                      <Card title="删除账本" style={{ borderColor: '#ff4d4f' }}>
+                        <div style={{ textAlign: 'center' }}>
+                          <p style={{ marginBottom: 16, color: '#666' }}>
+                            删除当前账本将永久移除所有相关数据，此操作不可恢复。
+                          </p>
+                          <Button 
+                            danger 
+                            size="large"
+                            icon={<DeleteOutlined />} 
+                            onClick={deleteLedger}
+                          >
+                            {t('ledger.delete')}
+                          </Button>
+                        </div>
                       </Card>
                     </Col>
                   </Row>
