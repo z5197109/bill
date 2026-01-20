@@ -10,6 +10,7 @@ import {
   InputNumber,
   Layout,
   Modal,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -283,6 +284,18 @@ function App() {
   const [categoryManageOpen, setCategoryManageOpen] = useState(false)
   const [ruleCreateOpen, setRuleCreateOpen] = useState(false)
   const [ruleManageOpen, setRuleManageOpen] = useState(false)
+  const [categoryEditOpen, setCategoryEditOpen] = useState(false)
+  const [categoryEditForm, setCategoryEditForm] = useState({ id: null, major: '', minor: '' })
+  const [ruleEditOpen, setRuleEditOpen] = useState(false)
+  const [ruleEditForm, setRuleEditForm] = useState({
+    id: null,
+    keyword: '',
+    major: '',
+    minor: '',
+    category_id: null,
+    category: '',
+    priority: 2,
+  })
   const [categoryFilter, setCategoryFilter] = useState({ keyword: '', major: '', minor: '' })
   const [ruleFilter, setRuleFilter] = useState({ keyword: '', major: '', minor: '' })
   const [templateWizardOpen, setTemplateWizardOpen] = useState(false)
@@ -412,6 +425,11 @@ function App() {
     if (!ruleForm.major) return []
     return categories.filter((c) => c.major === ruleForm.major)
   }, [categories, ruleForm.major])
+
+  const ruleEditMinorOptions = useMemo(() => {
+    if (!ruleEditForm.major) return []
+    return categories.filter((c) => c.major === ruleEditForm.major)
+  }, [categories, ruleEditForm.major])
 
   const recurringMajorOptions = useMemo(
     () => Array.from(new Set(categories.map((c) => c.major))).filter(Boolean),
@@ -822,25 +840,19 @@ function App() {
     return false
   }
 
-  const deleteCategory = (id) => {
-    Modal.confirm({
-      title: t('confirm.deleteCategory'),
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        try {
-          const res = await fetch(`/api/config/category-groups/${id}`, { method: 'DELETE' })
-          const data = await res.json()
-          if (data.success) {
-            pushToast(t('toasts.categoryDeleted'), 'success')
-            loadCategories()
-          } else {
-            pushToast(data.error || t('toasts.categoryDeleteFail'), 'error')
-          }
-        } catch {
-          pushToast(t('toasts.categoryDeleteFail'), 'error')
-        }
-      },
-    })
+  const deleteCategory = async (id) => {
+    try {
+      const res = await fetch(`/api/config/category-groups/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.categoryDeleted'), 'success')
+        loadCategories()
+      } else {
+        pushToast(data.error || t('toasts.categoryDeleteFail'), 'error')
+      }
+    } catch {
+      pushToast(t('toasts.categoryDeleteFail'), 'error')
+    }
   }
 
   const addRule = async () => {
@@ -922,7 +934,7 @@ function App() {
     const minor = String(record.minor || '').trim()
     if (!major) {
       pushToast(t('toasts.categoryAddFail'), 'warn')
-      return
+      return false
     }
     try {
       const res = await fetch(
@@ -938,12 +950,14 @@ function App() {
         pushToast(t('toasts.categoryUpdated'), 'success')
         loadCategories()
         loadRules()
+        return true
       } else {
         pushToast(data.error || t('toasts.categoryAddFail'), 'error')
       }
     } catch {
       pushToast(t('toasts.categoryAddFail'), 'error')
     }
+    return false
   }
 
   const updateRuleField = (id, field, value) => {
@@ -984,7 +998,7 @@ function App() {
     const priority = Number(record.priority) || 2
     if (!keyword || !category) {
       pushToast(t('toasts.ruleAddFail'), 'warn')
-      return
+      return false
     }
     try {
       const res = await fetch(`/api/config/categories/${record.id}`, {
@@ -1001,12 +1015,73 @@ function App() {
       if (data.success) {
         pushToast(t('toasts.ruleUpdated'), 'success')
         loadRules()
+        return true
       } else {
         pushToast(data.error || t('toasts.ruleAddFail'), 'error')
       }
     } catch {
       pushToast(t('toasts.ruleAddFail'), 'error')
     }
+    return false
+  }
+
+  const openCategoryEdit = (record) => {
+    setCategoryEditForm({
+      id: record.id,
+      major: record.major || '',
+      minor: record.minor || '',
+    })
+    setCategoryEditOpen(true)
+  }
+
+  const handleCategoryEditSave = async () => {
+    if (!categoryEditForm.id) return
+    const ok = await saveCategoryGroup(categoryEditForm)
+    if (ok) setCategoryEditOpen(false)
+  }
+
+  const openRuleEdit = (record) => {
+    const cat = categoryById.get(record.category_id)
+    const parts = (record.category || '').split('/')
+    const major = cat?.major || parts[0] || ''
+    const minor = cat?.minor || parts[1] || ''
+    setRuleEditForm({
+      id: record.id,
+      keyword: record.keyword || '',
+      major,
+      minor,
+      category_id: record.category_id ?? cat?.id ?? null,
+      category: record.category || cat?.full_name || '',
+      priority: Number(record.priority) || 2,
+    })
+    setRuleEditOpen(true)
+  }
+
+  const handleRuleEditMajorChange = (value) => {
+    setRuleEditForm((prev) => ({
+      ...prev,
+      major: value || '',
+      minor: '',
+      category_id: null,
+      category: '',
+    }))
+  }
+
+  const handleRuleEditMinorChange = (value) => {
+    const match = categories.find((c) => c.id === value)
+    setRuleEditForm((prev) => ({
+      ...prev,
+      category_id: value || null,
+      category: match ? match.full_name : '',
+      major: match ? match.major : prev.major,
+      minor: match ? match.minor : '',
+    }))
+  }
+
+  const handleRuleEditSave = async () => {
+    if (!ruleEditForm.id) return
+    const ok = await saveRule(ruleEditForm)
+    if (ok) setRuleEditOpen(false)
   }
 
   const normalizeScheduleValues = (type, value) => {
@@ -1723,7 +1798,11 @@ function App() {
             value={record.category_id ?? undefined}
             placeholder={t('config.minor')}
             onChange={(value) => handleResultMinorChange(record.clientId, value)}
-            open={autoOpenMinorFor === record.clientId && !!record.major}
+            open={
+              autoOpenMinorFor === record.clientId && record.major
+                ? true
+                : undefined
+            }
             onDropdownVisibleChange={(open) => {
               if (!open && autoOpenMinorFor === record.clientId) {
                 setAutoOpenMinorFor(null)
@@ -1806,17 +1885,11 @@ function App() {
       title: t('config.major'),
       dataIndex: 'major',
       key: 'major',
-      render: (_, record) => (
-        <Input value={record.major} onChange={(e) => updateCategoryField(record.id, 'major', e.target.value)} />
-      ),
     },
     {
       title: t('config.minor'),
       dataIndex: 'minor',
       key: 'minor',
-      render: (_, record) => (
-        <Input value={record.minor} onChange={(e) => updateCategoryField(record.id, 'minor', e.target.value)} />
-      ),
     },
     {
       title: t('config.action'),
@@ -1824,12 +1897,27 @@ function App() {
       width: 140,
       render: (_, record) => (
         <Space>
-          <Button type="link" icon={<SaveOutlined />} onClick={() => saveCategoryGroup(record)}>
-            {t('ledger.save')}
+          <Button type="link" icon={<SaveOutlined />} onClick={() => openCategoryEdit(record)}>
+            修改
           </Button>
-          <Button danger type="link" icon={<DeleteOutlined />} onClick={() => deleteCategory(record.id)}>
-            {t('config.delete')}
-          </Button>
+          <Popconfirm
+            title={t('confirm.deleteCategory')}
+            okText={t('config.delete')}
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            placement="topRight"
+            getPopupContainer={(trigger) => trigger.parentElement || document.body}
+            onConfirm={() => deleteCategory(record.id)}
+          >
+            <Button
+              danger
+              type="link"
+              icon={<DeleteOutlined />}
+              onClick={(event) => event.stopPropagation()}
+            >
+              {t('config.delete')}
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -1840,45 +1928,18 @@ function App() {
       title: t('config.tableHeaders')[0],
       dataIndex: 'keyword',
       key: 'keyword',
-      render: (_, record) => (
-        <Input
-          value={record.keyword}
-          onChange={(e) => updateRuleField(record.id, 'keyword', e.target.value)}
-        />
-      ),
     },
     {
       title: t('config.tableHeaders')[1],
       dataIndex: 'category',
       key: 'category',
-      render: (_, record) => (
-        <Select
-          value={record.category || undefined}
-          placeholder={t('config.category')}
-          onChange={(value) => handleRuleCategoryChange(record.id, value)}
-          allowClear
-        >
-          {categories.map((c) => (
-            <Select.Option key={c.id} value={c.full_name}>
-              {c.full_name}
-            </Select.Option>
-          ))}
-        </Select>
-      ),
+      render: (_, record) => categoryById.get(record.category_id)?.full_name || record.category || '',
     },
     {
       title: t('config.tableHeaders')[2],
       dataIndex: 'priority',
       key: 'priority',
       width: 120,
-      render: (_, record) => (
-        <InputNumber
-          min={1}
-          value={record.priority}
-          onChange={(value) => updateRuleField(record.id, 'priority', value)}
-          style={{ width: '100%' }}
-        />
-      ),
     },
     {
       title: t('config.action'),
@@ -1886,8 +1947,8 @@ function App() {
       width: 140,
       render: (_, record) => (
         <Space>
-          <Button type="link" icon={<SaveOutlined />} onClick={() => saveRule(record)}>
-            {t('ledger.save')}
+          <Button type="link" icon={<SaveOutlined />} onClick={() => openRuleEdit(record)}>
+            修改
           </Button>
           <Button danger type="link" icon={<DeleteOutlined />} onClick={() => deleteRule(record.id)}>
             {t('config.delete')}
@@ -2196,7 +2257,7 @@ function App() {
                     pagination={false}
                     size="small"
                     rowSelection={{
-                      selectedRowKeys,
+                      selectedRowKeys: selectedResultKeys,
                       onChange: (keys) =>
                         setResults((prev) => prev.map((r) => ({ ...r, selected: keys.includes(r.clientId) }))),
                     }}
@@ -2259,6 +2320,15 @@ function App() {
                           ? [moment(analyticsFilters.start_date, 'YYYY-MM-DD'), moment(analyticsFilters.end_date, 'YYYY-MM-DD')]
                           : []
                       }
+                      onCalendarChange={(dates) => {
+                        if (!dates) return
+                        const [start, end] = dates
+                        setAnalyticsFilters((prev) => ({
+                          ...prev,
+                          start_date: start ? start.format('YYYY-MM-DD') : prev.start_date,
+                          end_date: end ? end.format('YYYY-MM-DD') : prev.end_date,
+                        }))
+                      }}
                       onChange={(dates) => {
                         if (!dates || !dates[0] || !dates[1]) return
                         const [start, end] = dates
@@ -2268,6 +2338,8 @@ function App() {
                           end_date: end.format('YYYY-MM-DD'),
                         }
                         setAnalyticsFilters(nextFilters)
+                        setAnalyticsPage(1)
+                        refreshAnalytics(1, nextFilters)
                       }}
                       style={{ width: '100%' }}
                     />
@@ -3239,6 +3311,41 @@ function App() {
                           pagination={{ pageSize: 8 }}
                         />
                       </Modal>
+                      <Modal
+                        title="修改分类"
+                        open={categoryEditOpen}
+                        onCancel={() => setCategoryEditOpen(false)}
+                        onOk={handleCategoryEditSave}
+                        okText="修改"
+                        cancelText="取消"
+                        style={{ top: '20%' }}
+                        width={600}
+                      >
+                        <Form layout="vertical">
+                          <Row gutter={12}>
+                            <Col xs={24} md={12}>
+                              <Form.Item label={t('config.major')}>
+                                <Input
+                                  value={categoryEditForm.major}
+                                  onChange={(e) =>
+                                    setCategoryEditForm({ ...categoryEditForm, major: e.target.value })
+                                  }
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={12}>
+                              <Form.Item label={t('config.minor')}>
+                                <Input
+                                  value={categoryEditForm.minor}
+                                  onChange={(e) =>
+                                    setCategoryEditForm({ ...categoryEditForm, minor: e.target.value })
+                                  }
+                                />
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                        </Form>
+                      </Modal>
                     </Card>
                   </Col>
                   <Col span={24}>
@@ -3388,6 +3495,78 @@ function App() {
                           </Select>
                         </Space>
                         <Table rowKey="id" columns={rulesColumns} dataSource={rulesFiltered} pagination={{ pageSize: 8 }} />
+                      </Modal>
+                      <Modal
+                        title="修改规则"
+                        open={ruleEditOpen}
+                        onCancel={() => setRuleEditOpen(false)}
+                        onOk={handleRuleEditSave}
+                        okText="修改"
+                        cancelText="取消"
+                        style={{ top: '20%' }}
+                        width={800}
+                      >
+                        <Form layout="vertical">
+                          <Row gutter={12}>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.keyword')}>
+                                <Input
+                                  value={ruleEditForm.keyword}
+                                  onChange={(e) =>
+                                    setRuleEditForm({ ...ruleEditForm, keyword: e.target.value })
+                                  }
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.major')}>
+                                <Select
+                                  value={ruleEditForm.major || undefined}
+                                  placeholder={t('config.major')}
+                                  onChange={handleRuleEditMajorChange}
+                                  allowClear
+                                >
+                                  {ruleMajorOptions.map((m) => (
+                                    <Select.Option key={`rule-edit-major-${m}`} value={m}>
+                                      {m}
+                                    </Select.Option>
+                                  ))}
+                                </Select>
+                              </Form.Item>
+                            </Col>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.minor')}>
+                                <Select
+                                  value={ruleEditForm.category_id ?? undefined}
+                                  placeholder={t('config.minor')}
+                                  onChange={handleRuleEditMinorChange}
+                                  disabled={!ruleEditForm.major}
+                                  allowClear
+                                >
+                                  {ruleEditMinorOptions.map((c) => (
+                                    <Select.Option key={`rule-edit-minor-${c.id}`} value={c.id}>
+                                      {c.minor || c.full_name}
+                                    </Select.Option>
+                                  ))}
+                                </Select>
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                          <Row gutter={12}>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.priority')}>
+                                <InputNumber
+                                  min={1}
+                                  value={ruleEditForm.priority}
+                                  onChange={(value) =>
+                                    setRuleEditForm({ ...ruleEditForm, priority: value })
+                                  }
+                                  style={{ width: '100%' }}
+                                />
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                        </Form>
                       </Modal>
                     </Card>
                   </Col>
