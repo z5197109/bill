@@ -705,6 +705,73 @@ def delete_bill(bill_id):
             'error': str(e)
         }), 500
 
+@app.route('/api/bills/batch-delete', methods=['POST'])
+def batch_delete_bills():
+    """Batch delete bills"""
+    try:
+        init_processors(need_db=True)
+        
+        data = request.get_json()
+        bill_ids = data.get('bill_ids', [])
+        ledger_id = data.get('ledger_id')
+        
+        if not bill_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No bill IDs provided'
+            }), 400
+            
+        deleted_count = 0
+        for bill_id in bill_ids:
+            if enhanced_db.delete_bill(bill_id):
+                deleted_count += 1
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deleted {deleted_count} bills',
+            'deleted_count': deleted_count
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/bills/batch-update-budget', methods=['POST'])
+def batch_update_budget():
+    """Batch update bills budget inclusion"""
+    try:
+        init_processors(need_db=True)
+        
+        data = request.get_json()
+        bill_ids = data.get('bill_ids', [])
+        include_in_budget = data.get('include_in_budget', True)
+        ledger_id = data.get('ledger_id')
+        
+        if not bill_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No bill IDs provided'
+            }), 400
+            
+        updated_count = 0
+        for bill_id in bill_ids:
+            if enhanced_db.update_bill_budget_status(bill_id, include_in_budget):
+                updated_count += 1
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully updated {updated_count} bills',
+            'updated_count': updated_count
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 # === Analytics API Endpoints ===
 
 @app.route('/api/analytics/summary', methods=['GET'])

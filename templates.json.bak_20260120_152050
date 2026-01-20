@@ -1,5 +1,56 @@
 [
   {
+    "name": "taobao_order_detail",
+    "priority": 100,
+    "match": {
+      "any": [
+        "待发货",
+        "订单信息",
+        "百亿补贴官方精选"
+      ],
+      "regex_any": [
+        "实付\\s*款"
+      ],
+      "min_score": 1
+    },
+    "scope": {
+      "start_after_any": [
+        "百亿补贴官方精选"
+      ],
+      "end_before_any": [
+        "订单信息"
+      ]
+    },
+    "extract": {
+      "item": {
+        "line": 0,
+        "search_window": 2,
+        "clean": true,
+        "skip_contains": [
+          "待发货",
+          "号码保护",
+          "订单信息",
+          "商品总价",
+          "运费",
+          "店铺优惠",
+          "平台优惠",
+          "共减",
+          "实付"
+        ]
+      },
+      "amount": {
+        "anchor_regex": "实付\\s*款",
+        "offset": 0,
+        "line": 0,
+        "search_window": 1,
+        "require_regex": "(¥|￥)\\s*\\d",
+        "money_pick": "max_abs",
+        "abs": true,
+        "round": 2
+      }
+    }
+  },
+  {
     "name": "fallback_by_position",
     "priority": 0,
     "match": {

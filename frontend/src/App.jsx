@@ -233,6 +233,7 @@ function App() {
   const [analyticsTotal, setAnalyticsTotal] = useState(0)
   const [analyticsPage, setAnalyticsPage] = useState(1)
   const [analyticsSort, setAnalyticsSort] = useState({ field: '', order: '' })
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
   const pageSize = 20
   const [billEditOpen, setBillEditOpen] = useState(false)
   const [billEditForm, setBillEditForm] = useState({
@@ -285,7 +286,18 @@ function App() {
   const [categoryFilter, setCategoryFilter] = useState({ keyword: '', major: '', minor: '' })
   const [ruleFilter, setRuleFilter] = useState({ keyword: '', major: '', minor: '' })
   const [templateWizardOpen, setTemplateWizardOpen] = useState(false)
+  const [templateManageOpen, setTemplateManageOpen] = useState(false)
+  const [templates, setTemplates] = useState([])
+  const [templateEditOpen, setTemplateEditOpen] = useState(false)
+  const [editingTemplate, setEditingTemplate] = useState(null)
+  const [recurringEditOpen, setRecurringEditOpen] = useState(false)
+  const [editingRecurringRule, setEditingRecurringRule] = useState(null)
+  const [recurringDeleteOpen, setRecurringDeleteOpen] = useState(false)
+  const [recurringToDelete, setRecurringToDelete] = useState(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false)
+  const [batchBudgetOpen, setBatchBudgetOpen] = useState(false)
+  const [batchBudgetAction, setBatchBudgetAction] = useState(true)
 
   const [messageApi, contextHolder] = message.useMessage()
 
@@ -622,6 +634,160 @@ function App() {
       }
     } catch {
       pushToast(t('toasts.loadRecurringFail'), 'error')
+    }
+  }
+
+  const loadTemplates = async () => {
+    try {
+      const res = await fetch('/api/templates')
+      const data = await res.json()
+      if (data.success) {
+        setTemplates(data.data || [])
+      } else {
+        pushToast(data.error || '加载模板失败', 'error')
+      }
+    } catch {
+      pushToast('加载模板失败', 'error')
+    }
+  }
+
+  const deleteTemplate = (templateName) => {
+    Modal.confirm({
+      title: '删除模板',
+      content: `确定要删除模板 "${templateName}" 吗？`,
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          const res = await fetch(`/api/templates/${encodeURIComponent(templateName)}`, { 
+            method: 'DELETE' 
+          })
+          const data = await res.json()
+          if (data.success) {
+            pushToast('模板删除成功', 'success')
+            loadTemplates()
+          } else {
+            pushToast(data.error || '删除模板失败', 'error')
+          }
+        } catch {
+          pushToast('删除模板失败', 'error')
+        }
+      },
+    })
+  }
+
+  const [templateDeleteOpen, setTemplateDeleteOpen] = useState(false)
+  const [templateToDelete, setTemplateToDelete] = useState(null)
+
+  const handleTemplateDelete = (templateName) => {
+    setTemplateToDelete(templateName)
+    setTemplateDeleteOpen(true)
+  }
+
+  const confirmTemplateDelete = async () => {
+    if (!templateToDelete) return
+    
+    try {
+      const res = await fetch(`/api/templates/${encodeURIComponent(templateToDelete)}`, { 
+        method: 'DELETE' 
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast('模板删除成功', 'success')
+        loadTemplates()
+      } else {
+        pushToast(data.error || '删除模板失败', 'error')
+      }
+    } catch {
+      pushToast('删除模板失败', 'error')
+    } finally {
+      setTemplateDeleteOpen(false)
+      setTemplateToDelete(null)
+    }
+  }
+
+  const saveTemplateEdit = async () => {
+    if (!editingTemplate) return
+    
+    try {
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template: editingTemplate })
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast('模板保存成功', 'success')
+        loadTemplates()
+        setTemplateEditOpen(false)
+        setEditingTemplate(null)
+      } else {
+        pushToast(data.error || '保存模板失败', 'error')
+      }
+    } catch {
+      pushToast('保存模板失败', 'error')
+    }
+  }
+
+  const handleRecurringDelete = (ruleId) => {
+    setRecurringToDelete(ruleId)
+    setRecurringDeleteOpen(true)
+  }
+
+  const confirmRecurringDelete = async () => {
+    if (!recurringToDelete) return
+    
+    try {
+      const res = await fetch(`/api/recurring-rules/${recurringToDelete}`, { 
+        method: 'DELETE' 
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast('周期性规则删除成功', 'success')
+        loadRecurringRules()
+      } else {
+        pushToast(data.error || '删除周期性规则失败', 'error')
+      }
+    } catch {
+      pushToast('删除周期性规则失败', 'error')
+    } finally {
+      setRecurringDeleteOpen(false)
+      setRecurringToDelete(null)
+    }
+  }
+
+  const saveRecurringEdit = async () => {
+    if (!editingRecurringRule) return
+    
+    try {
+      const payload = {
+        amount: Number(editingRecurringRule.amount) || 0,
+        keyword: editingRecurringRule.keyword?.trim() || '',
+        category_id: editingRecurringRule.category_id,
+        category: editingRecurringRule.category || '',
+        schedule_type: editingRecurringRule.schedule_type,
+        schedule_value: editingRecurringRule.schedule_value,
+        start_date: editingRecurringRule.start_date,
+        end_date: editingRecurringRule.end_date || '',
+        enabled: Boolean(editingRecurringRule.enabled),
+        include_in_budget: Boolean(editingRecurringRule.include_in_budget),
+      }
+      
+      const res = await fetch(`/api/recurring-rules/${editingRecurringRule.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast('周期性规则保存成功', 'success')
+        loadRecurringRules()
+        setRecurringEditOpen(false)
+        setEditingRecurringRule(null)
+      } else {
+        pushToast(data.error || '保存周期性规则失败', 'error')
+      }
+    } catch {
+      pushToast('保存周期性规则失败', 'error')
     }
   }
 
@@ -1310,6 +1476,77 @@ function App() {
     }
   }
 
+  const batchDeleteBills = async () => {
+    if (selectedRowKeys.length === 0) {
+      pushToast('请先选择要删除的账单', 'warn')
+      return
+    }
+    setBatchDeleteOpen(true)
+  }
+
+  const handleBatchDeleteConfirm = async () => {
+    try {
+      const res = await fetch('/api/bills/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          bill_ids: selectedRowKeys,
+          ledger_id: currentLedgerId 
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(`已删除 ${selectedRowKeys.length} 条账单`, 'success')
+        setSelectedRowKeys([])
+        refreshAnalytics()
+        triggerDashboardRefresh()
+      } else {
+        pushToast(data.error || '删除失败', 'error')
+      }
+    } catch {
+      pushToast('删除失败', 'error')
+    } finally {
+      setBatchDeleteOpen(false)
+    }
+  }
+
+  const batchToggleBudget = async (includeInBudget) => {
+    if (selectedRowKeys.length === 0) {
+      pushToast('请先选择要操作的账单', 'warn')
+      return
+    }
+    setBatchBudgetAction(includeInBudget)
+    setBatchBudgetOpen(true)
+  }
+
+  const handleBatchBudgetConfirm = async () => {
+    const action = batchBudgetAction ? '计入预算' : '不计入预算'
+    try {
+      const res = await fetch('/api/bills/batch-update-budget', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          bill_ids: selectedRowKeys,
+          include_in_budget: batchBudgetAction,
+          ledger_id: currentLedgerId 
+        }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(`已将 ${selectedRowKeys.length} 条账单设为${action}`, 'success')
+        setSelectedRowKeys([])
+        refreshAnalytics()
+        triggerDashboardRefresh()
+      } else {
+        pushToast(data.error || '操作失败', 'error')
+      }
+    } catch {
+      pushToast('操作失败', 'error')
+    } finally {
+      setBatchBudgetOpen(false)
+    }
+  }
+
   const quickRange = (range) => {
     const now = moment()
     let start = now.clone()
@@ -1431,7 +1668,7 @@ function App() {
     }, 200)
   }
 
-  const selectedRowKeys = results.filter((r) => r.selected).map((r) => r.clientId)
+  const selectedResultKeys = results.filter((r) => r.selected).map((r) => r.clientId)
 
   const resultColumns = [
     {
@@ -1666,28 +1903,13 @@ function App() {
       dataIndex: 'amount',
       key: 'amount',
       width: 120,
-      render: (_, record) => (
-        <InputNumber
-          min={0}
-          value={record.amount}
-          onChange={(value) => updateRecurringRuleField(record.id, 'amount', value)}
-          onBlur={() => saveRecurringRule(record)}
-          style={{ width: '100%' }}
-        />
-      ),
+      render: (amount) => `¥${amount}`,
     },
     {
       title: t('recurring.keyword'),
       dataIndex: 'keyword',
       key: 'keyword',
       width: 160,
-      render: (_, record) => (
-        <Input
-          value={record.keyword}
-          onChange={(e) => updateRecurringRuleField(record.id, 'keyword', e.target.value)}
-          onBlur={() => saveRecurringRule(record)}
-        />
-      ),
     },
     {
       title: t('config.major'),
@@ -1696,22 +1918,7 @@ function App() {
       width: 120,
       render: (_, record) => {
         const currentCategory = categories.find(c => c.id === record.category_id)
-        const majorValue = currentCategory?.major || ''
-        return (
-          <Select
-            value={majorValue || undefined}
-            placeholder={t('config.major')}
-            onChange={(value) => handleRecurringRuleMajorChange(record.id, value)}
-            onBlur={() => saveRecurringRule(record)}
-            allowClear
-          >
-            {recurringMajorOptions.map((m) => (
-              <Select.Option key={m} value={m}>
-                {m}
-              </Select.Option>
-            ))}
-          </Select>
-        )
+        return currentCategory?.major || ''
       },
     },
     {
@@ -1721,24 +1928,7 @@ function App() {
       width: 140,
       render: (_, record) => {
         const currentCategory = categories.find(c => c.id === record.category_id)
-        const majorValue = currentCategory?.major || ''
-        const minorOptions = categories.filter(c => c.major === majorValue)
-        return (
-          <Select
-            value={record.category_id ?? undefined}
-            placeholder={t('config.minor')}
-            onChange={(value) => handleRecurringRuleMinorChange(record.id, value)}
-            onBlur={() => saveRecurringRule(record)}
-            disabled={!majorValue}
-            allowClear
-          >
-            {minorOptions.map((c) => (
-              <Select.Option key={c.id} value={c.id}>
-                {c.minor || c.full_name}
-              </Select.Option>
-            ))}
-          </Select>
-        )
+        return currentCategory?.minor || currentCategory?.full_name || ''
       },
     },
     {
@@ -1746,101 +1936,148 @@ function App() {
       dataIndex: 'schedule_type',
       key: 'schedule_type',
       width: 140,
-      render: (_, record) => (
-        <Select
-          value={record.schedule_type}
-          onChange={(value) => handleRecurringRuleScheduleTypeChange(record.id, value)}
-          onBlur={() => saveRecurringRule(record)}
-        >
-          <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
-          <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
-        </Select>
-      ),
+      render: (scheduleType) => scheduleType === 'weekly' ? t('recurring.scheduleWeekly') : t('recurring.scheduleMonthly'),
     },
     {
       title: t('recurring.scheduleValue'),
       dataIndex: 'schedule_value',
       key: 'schedule_value',
       width: 320,
-      render: (_, record) => (
-        <Select
-          mode="multiple"
-          value={Array.isArray(record.schedule_value) ? record.schedule_value : []}
-          onChange={(value) => updateRecurringRuleField(record.id, 'schedule_value', value)}
-          onBlur={() => saveRecurringRule(record)}
-          options={record.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions}
-        />
-      ),
+      render: (scheduleValue, record) => {
+        const values = Array.isArray(scheduleValue) ? scheduleValue : []
+        const options = record.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions
+        return values.map(v => {
+          const option = options.find(opt => opt.value === v)
+          return option ? option.label : v
+        }).join(', ')
+      },
     },
     {
       title: t('recurring.startDate'),
       dataIndex: 'start_date',
       key: 'start_date',
-      width: 295,
-      render: (_, record) => (
-        <DatePicker
-          value={record.start_date ? moment(record.start_date, 'YYYY-MM-DD') : null}
-          onChange={(date) => handleRecurringRuleStartDateChange(record.id, date)}
-          onBlur={() => saveRecurringRule(record)}
-          style={{ width: '100%' }}
-        />
-      ),
+      width: 140,
     },
     {
       title: t('recurring.endDate'),
       dataIndex: 'end_date',
       key: 'end_date',
-      width: 295,
-      render: (_, record) => (
-        <DatePicker
-          allowClear
-          value={record.end_date ? moment(record.end_date, 'YYYY-MM-DD') : null}
-          onChange={(date) =>
-            updateRecurringRuleField(record.id, 'end_date', date ? date.format('YYYY-MM-DD') : '')
-          }
-          onBlur={() => saveRecurringRule(record)}
-          style={{ width: '100%' }}
-        />
-      ),
+      width: 140,
+      render: (endDate) => endDate || '-',
     },
     {
       title: t('recurring.includeInBudget'),
       dataIndex: 'include_in_budget',
       key: 'include_in_budget',
       width: 120,
-      render: (_, record) => (
-        <Switch
-          checked={record.include_in_budget !== false}
-          onChange={(checked) => {
-            updateRecurringRuleField(record.id, 'include_in_budget', checked)
-            saveRecurringRule({ ...record, include_in_budget: checked })
-          }}
-        />
-      ),
+      render: (includeInBudget) => includeInBudget !== false ? '是' : '否',
     },
     {
       title: t('recurring.enabled'),
       dataIndex: 'enabled',
       key: 'enabled',
       width: 100,
-      render: (_, record) => (
-        <Switch
-          checked={Boolean(record.enabled)}
-          onChange={(checked) => {
-            updateRecurringRuleField(record.id, 'enabled', checked)
-            saveRecurringRule({ ...record, enabled: checked })
-          }}
-        />
-      ),
+      render: (enabled) => enabled ? '启用' : '禁用',
     },
     {
       title: t('config.action'),
       key: 'action',
-      width: 100,
+      width: 150,
       render: (_, record) => (
-        <Button danger type="link" icon={<DeleteOutlined />} onClick={() => deleteRecurringRule(record.id)}>
-          {t('config.delete')}
-        </Button>
+        <Space>
+          <Button 
+            type="link" 
+            onClick={() => {
+              setEditingRecurringRule(record)
+              setRecurringEditOpen(true)
+            }}
+          >
+            编辑
+          </Button>
+          <Button danger type="link" icon={<DeleteOutlined />} onClick={() => handleRecurringDelete(record.id)}>
+            {t('config.delete')}
+          </Button>
+        </Space>
+      ),
+    },
+  ]
+
+  const templateColumns = [
+    {
+      title: '模板名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 200,
+    },
+    {
+      title: '优先级',
+      dataIndex: 'priority',
+      key: 'priority',
+      width: 100,
+    },
+    {
+      title: '匹配关键词',
+      dataIndex: 'match',
+      key: 'match',
+      width: 300,
+      render: (match) => {
+        const keywords = []
+        if (match?.any) keywords.push(...match.any)
+        if (match?.all) keywords.push(...match.all)
+        if (match?.regex_any) keywords.push(...match.regex_any)
+        return keywords.join(', ')
+      },
+    },
+    {
+      title: '商品名行号',
+      dataIndex: 'extract',
+      key: 'item_line',
+      width: 120,
+      render: (extract) => {
+        const itemLine = extract?.item?.line
+        if (Array.isArray(itemLine)) {
+          return itemLine.join(', ')
+        }
+        return itemLine || '-'
+      },
+    },
+    {
+      title: '金额行号',
+      dataIndex: 'extract',
+      key: 'amount_line',
+      width: 120,
+      render: (extract) => {
+        const amountLine = extract?.amount?.line
+        if (Array.isArray(amountLine)) {
+          return amountLine.join(', ')
+        }
+        return amountLine || '-'
+      },
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 150,
+      render: (_, record) => (
+        <Space>
+          <Button 
+            type="link" 
+            onClick={() => {
+              setEditingTemplate(record)
+              setTemplateEditOpen(true)
+            }}
+          >
+            编辑
+          </Button>
+          <Button 
+            danger 
+            type="link" 
+            icon={<DeleteOutlined />} 
+            onClick={() => handleTemplateDelete(record.name)}
+          >
+            删除
+          </Button>
+        </Space>
       ),
     },
   ]
@@ -2092,12 +2329,56 @@ function App() {
               </Card>
 
               <Card>
+                {selectedRowKeys.length > 0 && (
+                  <div style={{ marginBottom: 16, padding: '8px 16px', backgroundColor: '#f0f2f5', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text>已选择 {selectedRowKeys.length} 项</Text>
+                    <Space>
+                      <Button 
+                        size="small" 
+                        onClick={() => setSelectedRowKeys([])}
+                      >
+                        取消选择
+                      </Button>
+                      <Button 
+                        size="small" 
+                        onClick={() => batchToggleBudget(false)}
+                      >
+                        不计入预算
+                      </Button>
+                      <Button 
+                        size="small" 
+                        onClick={() => batchToggleBudget(true)}
+                      >
+                        计入预算
+                      </Button>
+                      <Button 
+                        danger 
+                        size="small" 
+                        icon={<DeleteOutlined />}
+                        onClick={batchDeleteBills}
+                      >
+                        删除
+                      </Button>
+                    </Space>
+                  </div>
+                )}
                 <Table
                   rowKey="id"
                   columns={analyticsColumns}
                   dataSource={analyticsItems}
+                  rowSelection={{
+                    selectedRowKeys,
+                    onChange: setSelectedRowKeys,
+                    preserveSelectedRowKeys: true,
+                  }}
                   onRow={(record) => ({
-                    onClick: () => openBillEdit(record),
+                    onClick: (event) => {
+                      // 如果点击的是checkbox，不触发编辑
+                      if (event.target.closest('.ant-checkbox-wrapper')) {
+                        return
+                      }
+                      openBillEdit(record)
+                    },
                   })}
                   onChange={(pagination, filters, sorter, extra) => {
                     const nextPage = pagination?.current || 1
@@ -2246,20 +2527,35 @@ function App() {
                                 </Form.Item>
                               </Col>
                             </Row>
-                            <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center' }}>
-                              <Space>
-                                <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
-                                  {t('ledger.save')}
-                                </Button>
-                                <Button 
-                                  icon={<FileTextOutlined />} 
-                                  onClick={() => setTemplateWizardOpen(true)}
-                                >
-                                  账单模板
-                                </Button>
-                              </Space>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+                              <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
+                                {t('ledger.save')}
+                              </Button>
                             </div>
                           </Form>
+
+                          <Divider style={{ borderTop: '2px solid #bfbfbf', margin: '20px 0' }} />
+
+                          <Row justify="space-between" align="middle">
+                            <Col>
+                              <Text strong>账单识别管理</Text>
+                            </Col>
+                            <Col>
+                              <Space>
+                                <Button type="primary" onClick={() => setTemplateWizardOpen(true)}>
+                                  新增
+                                </Button>
+                                <Button
+                                  onClick={() => {
+                                    setTemplateManageOpen(true)
+                                    loadTemplates()
+                                  }}
+                                >
+                                  查看修改
+                                </Button>
+                              </Space>
+                            </Col>
+                          </Row>
 
                           <Divider style={{ borderTop: '2px solid #bfbfbf', margin: '20px 0' }} />
 
@@ -2442,8 +2738,337 @@ function App() {
                               columns={recurringColumns}
                               dataSource={recurringRules}
                               pagination={{ pageSize: 8 }}
-                              scroll={{ x: 1320 }}
+                              scroll={{ x: 1360 }}
                             />
+                          </Modal>
+
+                          <Modal
+                            title="账单模板管理"
+                            open={templateManageOpen}
+                            onCancel={() => setTemplateManageOpen(false)}
+                            footer={null}
+                            style={{ top: '20%' }}
+                            width={1200}
+                          >
+                            <Table
+                              rowKey="name"
+                              columns={templateColumns}
+                              dataSource={templates}
+                              pagination={{ pageSize: 8 }}
+                              scroll={{ x: 1000 }}
+                            />
+                          </Modal>
+
+                          <Modal
+                            title="删除模板"
+                            open={templateDeleteOpen}
+                            onCancel={() => setTemplateDeleteOpen(false)}
+                            onOk={confirmTemplateDelete}
+                            okButtonProps={{ danger: true }}
+                            okText="删除"
+                            cancelText="取消"
+                            style={{ top: '20%' }}
+                          >
+                            <p>确定要删除模板 "{templateToDelete}" 吗？</p>
+                          </Modal>
+
+                          <Modal
+                            title="编辑模板"
+                            open={templateEditOpen}
+                            onCancel={() => {
+                              setTemplateEditOpen(false)
+                              setEditingTemplate(null)
+                            }}
+                            onOk={saveTemplateEdit}
+                            okText="保存"
+                            cancelText="取消"
+                            style={{ top: '20%' }}
+                            width={800}
+                          >
+                            {editingTemplate && (
+                              <Form layout="vertical">
+                                <Row gutter={12}>
+                                  <Col xs={24} md={12}>
+                                    <Form.Item label="模板名称">
+                                      <Input
+                                        value={editingTemplate.name}
+                                        onChange={(e) => setEditingTemplate({
+                                          ...editingTemplate,
+                                          name: e.target.value
+                                        })}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={12}>
+                                    <Form.Item label="优先级">
+                                      <InputNumber
+                                        min={0}
+                                        max={1000}
+                                        value={editingTemplate.priority}
+                                        onChange={(value) => setEditingTemplate({
+                                          ...editingTemplate,
+                                          priority: value
+                                        })}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                                <Row gutter={12}>
+                                  <Col xs={24} md={12}>
+                                    <Form.Item label="商品名行号">
+                                      <Input
+                                        value={Array.isArray(editingTemplate.extract?.item?.line) 
+                                          ? editingTemplate.extract.item.line.join(',') 
+                                          : editingTemplate.extract?.item?.line || ''}
+                                        onChange={(e) => {
+                                          const value = e.target.value
+                                          const lineNumbers = value.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n))
+                                          setEditingTemplate({
+                                            ...editingTemplate,
+                                            extract: {
+                                              ...editingTemplate.extract,
+                                              item: {
+                                                ...editingTemplate.extract?.item,
+                                                line: lineNumbers.length === 1 ? lineNumbers[0] : lineNumbers
+                                              }
+                                            }
+                                          })
+                                        }}
+                                        placeholder="例如: 0 或 0,1,2"
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={12}>
+                                    <Form.Item label="金额行号">
+                                      <Input
+                                        value={Array.isArray(editingTemplate.extract?.amount?.line) 
+                                          ? editingTemplate.extract.amount.line.join(',') 
+                                          : editingTemplate.extract?.amount?.line || ''}
+                                        onChange={(e) => {
+                                          const value = e.target.value
+                                          const lineNumbers = value.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n))
+                                          setEditingTemplate({
+                                            ...editingTemplate,
+                                            extract: {
+                                              ...editingTemplate.extract,
+                                              amount: {
+                                                ...editingTemplate.extract?.amount,
+                                                line: lineNumbers.length === 1 ? lineNumbers[0] : lineNumbers
+                                              }
+                                            }
+                                          })
+                                        }}
+                                        placeholder="例如: 5 或 4,5,6"
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                                <Form.Item label="匹配关键词 (any)">
+                                  <Input.TextArea
+                                    rows={3}
+                                    value={editingTemplate.match?.any?.join('\n') || ''}
+                                    onChange={(e) => {
+                                      const keywords = e.target.value.split('\n').filter(k => k.trim())
+                                      setEditingTemplate({
+                                        ...editingTemplate,
+                                        match: {
+                                          ...editingTemplate.match,
+                                          any: keywords
+                                        }
+                                      })
+                                    }}
+                                    placeholder="每行一个关键词"
+                                  />
+                                </Form.Item>
+                              </Form>
+                            )}
+                          </Modal>
+
+                          <Modal
+                            title="删除周期性规则"
+                            open={recurringDeleteOpen}
+                            onCancel={() => setRecurringDeleteOpen(false)}
+                            onOk={confirmRecurringDelete}
+                            okButtonProps={{ danger: true }}
+                            okText="删除"
+                            cancelText="取消"
+                            style={{ top: '20%' }}
+                          >
+                            <p>确定要删除这条周期性规则吗？</p>
+                          </Modal>
+
+                          <Modal
+                            title="编辑周期性规则"
+                            open={recurringEditOpen}
+                            onCancel={() => {
+                              setRecurringEditOpen(false)
+                              setEditingRecurringRule(null)
+                            }}
+                            onOk={saveRecurringEdit}
+                            okText="保存"
+                            cancelText="取消"
+                            style={{ top: '20%' }}
+                            width={900}
+                          >
+                            {editingRecurringRule && (
+                              <Form layout="vertical">
+                                <Row gutter={12}>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('recurring.amount')}>
+                                      <InputNumber
+                                        min={0}
+                                        value={editingRecurringRule.amount}
+                                        onChange={(value) => setEditingRecurringRule({
+                                          ...editingRecurringRule,
+                                          amount: value
+                                        })}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('recurring.keyword')}>
+                                      <Input
+                                        value={editingRecurringRule.keyword}
+                                        onChange={(e) => setEditingRecurringRule({
+                                          ...editingRecurringRule,
+                                          keyword: e.target.value
+                                        })}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('config.major')}>
+                                      <Select
+                                        value={categories.find(c => c.id === editingRecurringRule.category_id)?.major || undefined}
+                                        placeholder={t('config.major')}
+                                        onChange={(value) => {
+                                          setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            category_id: null,
+                                            category: ''
+                                          })
+                                        }}
+                                        allowClear
+                                      >
+                                        {recurringMajorOptions.map((m) => (
+                                          <Select.Option key={m} value={m}>
+                                            {m}
+                                          </Select.Option>
+                                        ))}
+                                      </Select>
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('config.minor')}>
+                                      <Select
+                                        value={editingRecurringRule.category_id ?? undefined}
+                                        placeholder={t('config.minor')}
+                                        onChange={(value) => {
+                                          const match = categories.find((c) => c.id === value)
+                                          setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            category_id: value || null,
+                                            category: match ? match.full_name : ''
+                                          })
+                                        }}
+                                        allowClear
+                                      >
+                                        {categories.filter(c => c.major === categories.find(cat => cat.id === editingRecurringRule.category_id)?.major).map((c) => (
+                                          <Select.Option key={c.id} value={c.id}>
+                                            {c.minor || c.full_name}
+                                          </Select.Option>
+                                        ))}
+                                      </Select>
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                                <Row gutter={12}>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('recurring.scheduleType')}>
+                                      <Select
+                                        value={editingRecurringRule.schedule_type}
+                                        onChange={(value) => setEditingRecurringRule({
+                                          ...editingRecurringRule,
+                                          schedule_type: value,
+                                          schedule_value: normalizeScheduleValues(value, editingRecurringRule.schedule_value).length
+                                            ? normalizeScheduleValues(value, editingRecurringRule.schedule_value)
+                                            : [1]
+                                        })}
+                                      >
+                                        <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
+                                        <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
+                                      </Select>
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('recurring.scheduleValue')}>
+                                      <Select
+                                        mode="multiple"
+                                        value={Array.isArray(editingRecurringRule.schedule_value) ? editingRecurringRule.schedule_value : []}
+                                        onChange={(value) => setEditingRecurringRule({
+                                          ...editingRecurringRule,
+                                          schedule_value: value
+                                        })}
+                                        options={editingRecurringRule.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('recurring.startDate')}>
+                                      <DatePicker
+                                        value={editingRecurringRule.start_date ? moment(editingRecurringRule.start_date, 'YYYY-MM-DD') : null}
+                                        onChange={(date) => setEditingRecurringRule({
+                                          ...editingRecurringRule,
+                                          start_date: date ? date.format('YYYY-MM-DD') : '',
+                                          end_date: editingRecurringRule.end_date && date && editingRecurringRule.end_date < date.format('YYYY-MM-DD') 
+                                            ? date.format('YYYY-MM-DD') : editingRecurringRule.end_date
+                                        })}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('recurring.endDate')}>
+                                      <DatePicker
+                                        allowClear
+                                        value={editingRecurringRule.end_date ? moment(editingRecurringRule.end_date, 'YYYY-MM-DD') : null}
+                                        onChange={(date) => setEditingRecurringRule({
+                                          ...editingRecurringRule,
+                                          end_date: date ? date.format('YYYY-MM-DD') : ''
+                                        })}
+                                        style={{ width: '100%' }}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                                <Row gutter={12}>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('recurring.enabled')}>
+                                      <Switch
+                                        checked={Boolean(editingRecurringRule.enabled)}
+                                        onChange={(checked) => setEditingRecurringRule({
+                                          ...editingRecurringRule,
+                                          enabled: checked
+                                        })}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                  <Col xs={24} md={6}>
+                                    <Form.Item label={t('recurring.includeInBudget')}>
+                                      <Switch
+                                        checked={editingRecurringRule.include_in_budget !== false}
+                                        onChange={(checked) => setEditingRecurringRule({
+                                          ...editingRecurringRule,
+                                          include_in_budget: checked
+                                        })}
+                                      />
+                                    </Form.Item>
+                                  </Col>
+                                </Row>
+                              </Form>
+                            )}
                           </Modal>
                         </Space>
                       </Card>
@@ -2798,6 +3423,36 @@ function App() {
         <p style={{ color: '#ff4d4f', marginTop: 8 }}>
           此操作将删除账本及其所有账单数据，是否继续？
         </p>
+      </Modal>
+
+      {/* Batch Delete Bills Confirmation Modal */}
+      <Modal
+        title="确认删除"
+        visible={batchDeleteOpen}
+        onOk={handleBatchDeleteConfirm}
+        onCancel={() => setBatchDeleteOpen(false)}
+        okText="删除"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+        style={{ top: '20%' }}
+      >
+        <p>确定要删除选中的 {selectedRowKeys.length} 条账单吗？</p>
+        <p style={{ color: '#ff4d4f', marginTop: 8 }}>
+          此操作不可恢复，请谨慎操作。
+        </p>
+      </Modal>
+
+      {/* Batch Budget Update Confirmation Modal */}
+      <Modal
+        title="确认操作"
+        visible={batchBudgetOpen}
+        onOk={handleBatchBudgetConfirm}
+        onCancel={() => setBatchBudgetOpen(false)}
+        okText="确认"
+        cancelText="取消"
+        style={{ top: '20%' }}
+      >
+        <p>确定要将选中的 {selectedRowKeys.length} 条账单设为{batchBudgetAction ? '计入预算' : '不计入预算'}吗？</p>
       </Modal>
     </Layout>
   )

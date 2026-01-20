@@ -884,6 +884,21 @@ class EnhancedDatabaseManager:
         conn.close()
         return deleted
     
+    def update_bill_budget_status(self, bill_id: int, include_in_budget: bool) -> bool:
+        """Update a bill's budget inclusion status"""
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            'UPDATE bills SET include_in_budget = ? WHERE id = ?', 
+            (include_in_budget, bill_id)
+        )
+        updated = cursor.rowcount > 0
+        
+        conn.commit()
+        conn.close()
+        return updated
+    
     def _row_to_bill(self, row) -> EnhancedBill:
         """Convert database row to EnhancedBill object"""
         raw_text = json.loads(row[6]) if row[6] else []
