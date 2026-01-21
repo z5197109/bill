@@ -58,11 +58,6 @@ class CategoryRule:
             self.created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not self.updated_at:
             self.updated_at = self.created_at
-        if self.ledger_id is None:
-            try:
-                self.ledger_id = EnhancedDatabaseManager().get_default_ledger_id()
-            except Exception:
-                self.ledger_id = None
 
 
 @dataclass
@@ -134,6 +129,18 @@ class EnhancedDatabaseManager:
                 monthly_budget REAL DEFAULT 0,
                 created_at TEXT,
                 updated_at TEXT
+            )
+        ''')
+        
+        # Ledger backup snapshots (created on ledger delete)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ledger_backups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ledger_id INTEGER,
+                ledger_name TEXT,
+                monthly_budget REAL,
+                created_at TEXT,
+                backup_json TEXT
             )
         ''')
 
@@ -289,6 +296,7 @@ class EnhancedDatabaseManager:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_categories_major_minor ON categories(major, minor)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_recurring_rules_ledger ON recurring_rules(ledger_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_recurring_rule_runs_rule_date ON recurring_rule_runs(rule_id, bill_date)')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_ledger_backups_ledger ON ledger_backups(ledger_id)')
         
         # Initialize category rules from config if table is empty
         cursor.execute('SELECT COUNT(*) FROM category_rules')
@@ -459,6 +467,206 @@ class EnhancedDatabaseManager:
         conn.close()
         return row[0] if row else 0
 
+    def get_ledger_count(self) -> int:
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM ledgers')
+        count = cursor.fetchone()[0] or 0
+        conn.close()
+        return count
+
+    def _table_columns(self, cursor, table: str) -> List[str]:
+        cursor.execute(f"PRAGMA table_info({table})")
+        return [row[1] for row in cursor.fetchall()]
+
+    def _fetch_rows(self, cursor, table: str, where_clause: str = "", params: Optional[List[Any]] = None) -> List[Dict[str, Any]]:
+        query = f"SELECT * FROM {table}"
+        if where_clause:
+            query += f" WHERE {where_clause}"
+        cursor.execute(query, params or [])
+        cols = [desc[0] for desc in cursor.description]
+        return [dict(zip(cols, row)) for row in cursor.fetchall()]
+
+    def _insert_rows(self, cursor, table: str, rows: List[Dict[str, Any]]):
+        if not rows:
+            return
+        available_cols = self._table_columns(cursor, table)
+        row_keys = set()
+        for row in rows:
+            row_keys.update(row.keys())
+        use_cols = [col for col in available_cols if col in row_keys]
+        if not use_cols:
+            return
+        placeholders = ",".join(["?"] * len(use_cols))
+        sql = f"INSERT INTO {table} ({', '.join(use_cols)}) VALUES ({placeholders})"
+        for row in rows:
+            cursor.execute(sql, [row.get(col) for col in use_cols])
+
+    def _build_ledger_backup(self, cursor, ledger_id: int) -> Optional[Dict[str, Any]]:
+        cursor.execute('SELECT id, name, monthly_budget, created_at, updated_at FROM ledgers WHERE id=?', (ledger_id,))
+        ledger_row = cursor.fetchone()
+        if not ledger_row:
+            return None
+        ledger = {
+            "id": ledger_row[0],
+            "name": ledger_row[1],
+            "monthly_budget": ledger_row[2] or 0,
+            "created_at": ledger_row[3],
+            "updated_at": ledger_row[4],
+        }
+        return {
+            "version": 1,
+            "ledger": ledger,
+            "categories": self._fetch_rows(cursor, "categories", "ledger_id = ?", [ledger_id]),
+            "category_rules": self._fetch_rows(cursor, "category_rules", "ledger_id = ?", [ledger_id]),
+            "bills": self._fetch_rows(cursor, "bills", "ledger_id = ?", [ledger_id]),
+            "recurring_rules": self._fetch_rows(cursor, "recurring_rules", "ledger_id = ?", [ledger_id]),
+            "recurring_rule_runs": self._fetch_rows(cursor, "recurring_rule_runs", "ledger_id = ?", [ledger_id]),
+        }
+
+    def create_ledger_backup(self, ledger_id: int, cursor: Optional[sqlite3.Cursor] = None) -> Optional[int]:
+        owns_conn = cursor is None
+        conn = None
+        if owns_conn:
+            conn = sqlite3.connect(self.db_name)
+            cursor = conn.cursor()
+        backup = self._build_ledger_backup(cursor, ledger_id)
+        if not backup:
+            if owns_conn and conn is not None:
+                conn.close()
+            return None
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        backup_json = json.dumps(backup, ensure_ascii=False)
+        cursor.execute(
+            '''
+            INSERT INTO ledger_backups (ledger_id, ledger_name, monthly_budget, created_at, backup_json)
+            VALUES (?, ?, ?, ?, ?)
+            ''',
+            (backup["ledger"]["id"], backup["ledger"]["name"], backup["ledger"]["monthly_budget"], now, backup_json),
+        )
+        backup_id = cursor.lastrowid
+        if owns_conn and conn is not None:
+            conn.commit()
+            conn.close()
+        return backup_id
+
+    def list_ledger_backups(self) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, ledger_id, ledger_name, monthly_budget, created_at
+            FROM ledger_backups
+            ORDER BY id DESC
+            '''
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            {
+                "id": row[0],
+                "ledger_id": row[1],
+                "ledger_name": row[2],
+                "monthly_budget": row[3] or 0,
+                "created_at": row[4],
+            }
+            for row in rows
+        ]
+
+    def delete_ledger_backup(self, backup_id: int) -> bool:
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM ledger_backups WHERE id=?', (backup_id,))
+        deleted = cursor.rowcount > 0
+        conn.commit()
+        conn.close()
+        return deleted
+
+    def restore_ledger_backup(self, backup_id: int) -> Dict[str, Any]:
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, ledger_id, ledger_name, monthly_budget, created_at, backup_json
+            FROM ledger_backups
+            WHERE id = ?
+            ''',
+            (backup_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return {"success": False, "error": "backup_not_found"}
+
+        try:
+            backup = json.loads(row[5] or "{}")
+        except json.JSONDecodeError:
+            conn.close()
+            return {"success": False, "error": "backup_invalid"}
+
+        ledger = backup.get("ledger") or {}
+        ledger_id = ledger.get("id") or row[1]
+        ledger_name = ledger.get("name") or row[2] or f"Ledger {ledger_id}"
+        monthly_budget = ledger.get("monthly_budget") or row[3] or 0
+        created_at = ledger.get("created_at") or row[4] or datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        updated_at = ledger.get("updated_at") or created_at
+
+        cursor.execute('SELECT COUNT(*) FROM ledgers WHERE id=?', (ledger_id,))
+        if cursor.fetchone()[0] > 0:
+            conn.close()
+            return {"success": False, "error": "ledger_exists"}
+
+        cursor.execute('SELECT COUNT(*) FROM ledgers WHERE name=?', (ledger_name,))
+        if cursor.fetchone()[0] > 0:
+            suffix = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+            ledger_name = f"{ledger_name} (恢复{suffix})"
+
+        try:
+            conn.execute("BEGIN")
+            # Clean any stale rows for this ledger id (defensive)
+            for table in ("bills", "category_rules", "categories", "recurring_rules", "recurring_rule_runs"):
+                cursor.execute(f"DELETE FROM {table} WHERE ledger_id = ?", (ledger_id,))
+
+            cursor.execute(
+                '''
+                INSERT INTO ledgers (id, name, monthly_budget, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ''',
+                (ledger_id, ledger_name, monthly_budget, created_at, updated_at),
+            )
+
+            def apply_ledger_id(rows: List[Dict[str, Any]]):
+                for r in rows:
+                    if "ledger_id" in r:
+                        r["ledger_id"] = ledger_id
+
+            categories = backup.get("categories", [])
+            rules = backup.get("category_rules", [])
+            bills = backup.get("bills", [])
+            recurring_rules = backup.get("recurring_rules", [])
+            recurring_runs = backup.get("recurring_rule_runs", [])
+
+            apply_ledger_id(categories)
+            apply_ledger_id(rules)
+            apply_ledger_id(bills)
+            apply_ledger_id(recurring_rules)
+            apply_ledger_id(recurring_runs)
+
+            self._insert_rows(cursor, "categories", categories)
+            self._insert_rows(cursor, "category_rules", rules)
+            self._insert_rows(cursor, "bills", bills)
+            self._insert_rows(cursor, "recurring_rules", recurring_rules)
+            self._insert_rows(cursor, "recurring_rule_runs", recurring_runs)
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            conn.close()
+            return {"success": False, "error": "restore_failed"}
+
+        conn.close()
+        return {"success": True, "ledger_id": ledger_id, "ledger_name": ledger_name}
+
     def list_ledgers(self) -> List[Dict[str, Any]]:
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
@@ -497,6 +705,22 @@ class EnhancedDatabaseManager:
     def delete_ledger(self, ledger_id: int) -> bool:
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM ledgers')
+        total = cursor.fetchone()[0] or 0
+        if total <= 1:
+            conn.close()
+            return False
+
+        backup_id = self.create_ledger_backup(ledger_id, cursor=cursor)
+        if backup_id is None:
+            conn.close()
+            return False
+
+        cursor.execute('DELETE FROM recurring_rule_runs WHERE ledger_id=?', (ledger_id,))
+        cursor.execute('DELETE FROM recurring_rules WHERE ledger_id=?', (ledger_id,))
+        cursor.execute('DELETE FROM bills WHERE ledger_id=?', (ledger_id,))
+        cursor.execute('DELETE FROM category_rules WHERE ledger_id=?', (ledger_id,))
+        cursor.execute('DELETE FROM categories WHERE ledger_id=?', (ledger_id,))
         cursor.execute('DELETE FROM ledgers WHERE id=?', (ledger_id,))
         deleted = cursor.rowcount > 0
         conn.commit()
@@ -589,7 +813,9 @@ class EnhancedDatabaseManager:
         # prefer ledger-specific match, fallback to global
         params = [group.major, group.minor]
         query = "SELECT id, major, minor FROM categories WHERE major=? AND minor=?"
-        if ledger_id is not None:
+        if ledger_id is None:
+            query += " AND ledger_id IS NULL"
+        else:
             query += " AND (ledger_id IS NULL OR ledger_id = ?)"
             params.append(ledger_id)
         cursor.execute(query, params)
@@ -602,8 +828,6 @@ class EnhancedDatabaseManager:
         """Initialize categories from existing rules and config"""
         print("🔄 [DB Init] 正在初始化分类目录...")
         categories = set()
-        default_ledger = self.get_default_ledger_id()
-
         cursor.execute('SELECT DISTINCT category FROM category_rules')
         for row in cursor.fetchall():
             if row[0]:
@@ -621,7 +845,7 @@ class EnhancedDatabaseManager:
             cursor.execute('''
                 INSERT OR IGNORE INTO categories (major, minor, created_at, updated_at, ledger_id)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (group.major, group.minor, now, now, default_ledger))
+            ''', (group.major, group.minor, now, now, None))
 
         print("✅ [DB Init] 分类目录初始化完成")
 
@@ -632,46 +856,35 @@ class EnhancedDatabaseManager:
         if not rows:
             return
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        default_ledger = self.get_default_ledger_id()
         for category_name, lid in rows:
             if not category_name:
                 continue
             group = self._split_category_name(category_name)
             if not group.major:
                 continue
-            ledger_val = lid if lid is not None else default_ledger
             cursor.execute('''
                 INSERT OR IGNORE INTO categories (major, minor, created_at, updated_at, ledger_id)
                 VALUES (?, ?, ?, ?, ?)
-            ''', (group.major, group.minor, now, now, ledger_val))
+            ''', (group.major, group.minor, now, now, lid))
 
     def _cleanup_categories(self, cursor):
         """Normalize ledger_id on categories and remove duplicates created before migration."""
-        default_ledger = self.get_default_ledger_id()
-        if not default_ledger:
-            return
+        cursor.execute('UPDATE categories SET ledger_id = NULL WHERE ledger_id = 0')
         cursor.execute('SELECT id, major, minor, ledger_id FROM categories')
         rows = cursor.fetchall()
         if not rows:
             return
 
-        # Prefer keeping records that already have a ledger_id to avoid unique conflicts
-        rows_sorted = sorted(rows, key=lambda r: (r[3] in (None, 0), r[0]))
+        rows_sorted = sorted(rows, key=lambda r: r[0])
         keepers = {}
-        ledger_updates = []
         duplicates = []
         for cid, major, minor, lid in rows_sorted:
-            normalized_ledger = lid if lid not in (None, 0) else default_ledger
+            normalized_ledger = None if lid in (0,) else lid
             key = ((major or "").strip(), (minor or "").strip(), normalized_ledger)
             if key in keepers:
                 duplicates.append((cid, keepers[key]))
             else:
                 keepers[key] = cid
-                if lid in (None, 0):
-                    ledger_updates.append((normalized_ledger, cid))
-
-        for ledger_val, cid in ledger_updates:
-            cursor.execute('UPDATE categories SET ledger_id=? WHERE id=?', (ledger_val, cid))
 
         for dup_id, keep_id in duplicates:
             cursor.execute('UPDATE bills SET category_id=? WHERE category_id=?', (keep_id, dup_id))
@@ -681,7 +894,46 @@ class EnhancedDatabaseManager:
             dup_ids = [d[0] for d in duplicates]
             placeholders = ','.join(['?'] * len(dup_ids))
             cursor.execute(f'DELETE FROM categories WHERE id IN ({placeholders})', dup_ids)
-    
+
+        cursor.execute("""
+            SELECT DISTINCT category_id
+            FROM category_rules
+            WHERE ledger_id IS NULL AND category_id IS NOT NULL AND category_id != 0
+        """)
+        global_rule_category_ids = [row[0] for row in cursor.fetchall()]
+        for cat_id in global_rule_category_ids:
+            cursor.execute('SELECT id, major, minor, ledger_id FROM categories WHERE id=?', (cat_id,))
+            row = cursor.fetchone()
+            if not row:
+                continue
+            if row[3] is None:
+                continue
+            cursor.execute(
+                'SELECT id FROM categories WHERE major=? AND minor=? AND ledger_id IS NULL',
+                (row[1], row[2]),
+            )
+            global_row = cursor.fetchone()
+            if global_row:
+                global_id = global_row[0]
+                cursor.execute(
+                    'UPDATE category_rules SET category_id=? WHERE ledger_id IS NULL AND category_id=?',
+                    (global_id, cat_id),
+                )
+            else:
+                try:
+                    cursor.execute('UPDATE categories SET ledger_id=NULL WHERE id=?', (cat_id,))
+                except sqlite3.IntegrityError:
+                    cursor.execute(
+                        'SELECT id FROM categories WHERE major=? AND minor=? AND ledger_id IS NULL',
+                        (row[1], row[2]),
+                    )
+                    fallback = cursor.fetchone()
+                    if fallback:
+                        cursor.execute(
+                            'UPDATE category_rules SET category_id=? WHERE ledger_id IS NULL AND category_id=?',
+                            (fallback[0], cat_id),
+                        )
+
     # Bills CRUD operations
     def save_bill(self, bill: EnhancedBill) -> int:
         """Save a bill to database"""
@@ -954,8 +1206,6 @@ class EnhancedDatabaseManager:
         conn = sqlite3.connect(self.db_name)
         cursor = conn.cursor()
         
-        if rule.ledger_id is None:
-            rule.ledger_id = self.get_default_ledger_id()
         rule.category_id, rule.category = self._resolve_category(cursor, rule.category, rule.category_id, rule.ledger_id)
         rule.updated_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -1325,7 +1575,6 @@ class EnhancedDatabaseManager:
             old_name = self._format_category_name(row[0], row[1])
             new_name = self._format_category_name(group.major, group.minor)
             group.updated_at = now
-            group.ledger_id = group.ledger_id if group.ledger_id is not None else row[2]
 
             try:
                 cursor.execute('''

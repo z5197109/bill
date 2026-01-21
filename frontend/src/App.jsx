@@ -56,9 +56,19 @@ const I18N = {
       budget: '月预算',
       save: '保存',
       delete: '删除',
+      deleteBackup: '删除备份',
       newLedger: '新建账本',
       create: '创建',
-      deleteConfirm: '删除当前账本？账单将被移除。',
+      deleteConfirm: '删除当前账本？账单将被移除，并自动生成备份。',
+      deleteLast: '至少保留一个账本',
+      backupsTitle: '账本备份',
+      backupLedger: '账本',
+      backupAt: '备份时间',
+      backupAction: '操作',
+      restore: '恢复',
+      restoreConfirm: '确认恢复该备份？',
+      deleteBackupConfirm: '确认删除该备份？',
+      backupEmpty: '暂无备份',
     },
     upload: {
       title: '上传识别',
@@ -151,7 +161,13 @@ const I18N = {
       ledgerCreateFail: '创建失败',
       ledgerDeleted: '账本已删除',
       ledgerDeleteFail: '删除失败',
+      ledgerDeleteLast: '至少保留一个账本',
       enterLedgerName: '请输入账本名称',
+      loadLedgerBackupsFail: '加载备份失败',
+      ledgerRestored: '账本已恢复',
+      ledgerRestoreFail: '恢复失败',
+      backupDeleted: '备份已删除',
+      backupDeleteFail: '删除备份失败',
       loadCategoriesFail: '加载分类失败',
       loadRulesFail: '加载规则失败',
       categoryAdded: '分类已添加',
@@ -210,6 +226,7 @@ function App() {
   const [currentLedgerId, setCurrentLedgerId] = useState(null)
   const [ledgerForm, setLedgerForm] = useState({ name: '', monthly_budget: '' })
   const [newLedger, setNewLedger] = useState({ name: '', monthly_budget: '' })
+  const [ledgerBackups, setLedgerBackups] = useState([])
 
   const [categories, setCategories] = useState([])
   const [rules, setRules] = useState([])
@@ -285,7 +302,7 @@ function App() {
   const [ruleCreateOpen, setRuleCreateOpen] = useState(false)
   const [ruleManageOpen, setRuleManageOpen] = useState(false)
   const [categoryEditOpen, setCategoryEditOpen] = useState(false)
-  const [categoryEditForm, setCategoryEditForm] = useState({ id: null, major: '', minor: '' })
+  const [categoryEditForm, setCategoryEditForm] = useState({ id: null, major: '', minor: '', scope: 'current' })
   const [ruleEditOpen, setRuleEditOpen] = useState(false)
   const [ruleEditForm, setRuleEditForm] = useState({
     id: null,
@@ -295,6 +312,7 @@ function App() {
     category_id: null,
     category: '',
     priority: 2,
+    scope: 'current',
   })
   const [categoryFilter, setCategoryFilter] = useState({ keyword: '', major: '', minor: '' })
   const [ruleFilter, setRuleFilter] = useState({ keyword: '', major: '', minor: '' })
@@ -324,6 +342,7 @@ function App() {
 
   useEffect(() => {
     loadLedgers()
+    loadLedgerBackups()
   }, [])
 
   useEffect(() => {
@@ -515,6 +534,20 @@ function App() {
     }
   }
 
+  const loadLedgerBackups = async () => {
+    try {
+      const res = await fetch('/api/ledger-backups')
+      const data = await res.json()
+      if (data.success) {
+        setLedgerBackups(data.backups || [])
+      } else {
+        pushToast(data.error || t('toasts.loadLedgerBackupsFail'), 'error')
+      }
+    } catch {
+      pushToast(t('toasts.loadLedgerBackupsFail'), 'error')
+    }
+  }
+
   const saveLedger = async () => {
     if (!ledgerForm.name.trim()) {
       pushToast(t('toasts.ledgerNameRequired'), 'warn')
@@ -574,7 +607,11 @@ function App() {
 
   const deleteLedger = () => {
     if (!currentLedgerId) {
-      message.warning('请先选择一个账本')
+      pushToast('请先选择一个账本', 'warn')
+      return
+    }
+    if (ledgers.length <= 1) {
+      pushToast(t('toasts.ledgerDeleteLast'), 'warn')
       return
     }
     setDeleteConfirmOpen(true)
@@ -588,18 +625,58 @@ function App() {
         pushToast(t('toasts.ledgerDeleted'), 'success')
         setCurrentLedgerId(null)
         loadLedgers()
+        loadLedgerBackups()
         // Refresh page after successful deletion
         setTimeout(() => {
           window.location.reload()
         }, 500)
       } else {
-        pushToast(data.error || t('toasts.ledgerDeleteFail'), 'error')
+        if (data.code === 'last_ledger') {
+          pushToast(t('toasts.ledgerDeleteLast'), 'warn')
+        } else {
+          pushToast(data.error || t('toasts.ledgerDeleteFail'), 'error')
+        }
       }
     } catch (err) {
       console.error('Delete error:', err)
       pushToast(t('toasts.ledgerDeleteFail'), 'error')
     } finally {
       setDeleteConfirmOpen(false)
+    }
+  }
+
+  const restoreLedgerBackup = async (backup) => {
+    try {
+      const res = await fetch(`/api/ledger-backups/${backup.id}/restore`, { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.ledgerRestored'), 'success')
+        setCurrentLedgerId(data.ledger_id)
+        loadLedgers()
+        loadLedgerBackups()
+        triggerDashboardRefresh()
+      } else {
+        pushToast(data.error || t('toasts.ledgerRestoreFail'), 'error')
+      }
+    } catch (err) {
+      console.error('Restore error:', err)
+      pushToast(t('toasts.ledgerRestoreFail'), 'error')
+    }
+  }
+
+  const deleteLedgerBackup = async (backup) => {
+    try {
+      const res = await fetch(`/api/ledger-backups/${backup.id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.success) {
+        pushToast(t('toasts.backupDeleted'), 'success')
+        loadLedgerBackups()
+      } else {
+        pushToast(data.error || t('toasts.backupDeleteFail'), 'error')
+      }
+    } catch (err) {
+      console.error('Backup delete error:', err)
+      pushToast(t('toasts.backupDeleteFail'), 'error')
     }
   }
 
@@ -942,7 +1019,11 @@ function App() {
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ major, minor }),
+          body: JSON.stringify({
+            major,
+            minor,
+            ledger_id: record.scope === 'global' ? null : currentLedgerId,
+          }),
         },
       )
       const data = await res.json()
@@ -1009,6 +1090,7 @@ function App() {
           category,
           category_id: record.category_id,
           priority,
+          ledger_id: record.scope === 'global' ? null : currentLedgerId,
         }),
       })
       const data = await res.json()
@@ -1030,6 +1112,7 @@ function App() {
       id: record.id,
       major: record.major || '',
       minor: record.minor || '',
+      scope: record.ledger_id === null || record.ledger_id === undefined ? 'global' : 'current',
     })
     setCategoryEditOpen(true)
   }
@@ -1053,6 +1136,7 @@ function App() {
       category_id: record.category_id ?? cat?.id ?? null,
       category: record.category || cat?.full_name || '',
       priority: Number(record.priority) || 2,
+      scope: record.ledger_id === null || record.ledger_id === undefined ? 'global' : 'current',
     })
     setRuleEditOpen(true)
   }
@@ -1892,6 +1976,13 @@ function App() {
       key: 'minor',
     },
     {
+      title: t('config.scope'),
+      dataIndex: 'ledger_id',
+      key: 'scope',
+      width: 140,
+      render: (value) => (value === null || value === undefined ? t('config.scopeGlobal') : t('config.scopeCurrent')),
+    },
+    {
       title: t('config.action'),
       key: 'action',
       width: 140,
@@ -1934,6 +2025,13 @@ function App() {
       dataIndex: 'category',
       key: 'category',
       render: (_, record) => categoryById.get(record.category_id)?.full_name || record.category || '',
+    },
+    {
+      title: t('config.scope'),
+      dataIndex: 'ledger_id',
+      key: 'scope',
+      width: 140,
+      render: (value) => (value === null || value === undefined ? t('config.scopeGlobal') : t('config.scopeCurrent')),
     },
     {
       title: t('config.tableHeaders')[2],
@@ -2138,6 +2236,49 @@ function App() {
           >
             删除
           </Button>
+        </Space>
+      ),
+    },
+  ]
+
+  const ledgerBackupColumns = [
+    {
+      title: t('ledger.backupLedger'),
+      dataIndex: 'ledger_name',
+      key: 'ledger_name',
+      render: (value, record) => value || `ID ${record.ledger_id}`,
+    },
+    {
+      title: t('ledger.backupAt'),
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 180,
+    },
+    {
+      title: t('ledger.backupAction'),
+      key: 'action',
+      width: 120,
+      render: (_, record) => (
+        <Space>
+          <Popconfirm
+            title={t('ledger.restoreConfirm')}
+            okText={t('ledger.restore')}
+            cancelText="取消"
+            onConfirm={() => restoreLedgerBackup(record)}
+          >
+            <Button type="link">{t('ledger.restore')}</Button>
+          </Popconfirm>
+          <Popconfirm
+            title={t('ledger.deleteBackupConfirm')}
+            okText={t('ledger.deleteBackup')}
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => deleteLedgerBackup(record)}
+          >
+            <Button danger type="link" icon={<DeleteOutlined />}>
+              {t('ledger.deleteBackup')}
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },
@@ -3178,17 +3319,29 @@ function App() {
                       <Card title="删除账本" style={{ borderColor: '#ff4d4f' }}>
                         <div style={{ textAlign: 'center' }}>
                           <p style={{ marginBottom: 16, color: '#666' }}>
-                            删除当前账本将永久移除所有相关数据，此操作不可恢复。
+                            删除当前账本将移除所有相关数据，但会自动生成备份，可在下方恢复。
                           </p>
                           <Button 
                             danger 
                             size="large"
                             icon={<DeleteOutlined />} 
                             onClick={deleteLedger}
+                            disabled={!currentLedgerId || ledgers.length <= 1}
                           >
                             {t('ledger.delete')}
                           </Button>
                         </div>
+                      </Card>
+                    </Col>
+                    <Col span={24}>
+                      <Card title={t('ledger.backupsTitle')}>
+                        <Table
+                          rowKey="id"
+                          columns={ledgerBackupColumns}
+                          dataSource={ledgerBackups}
+                          pagination={{ pageSize: 6 }}
+                          locale={{ emptyText: t('ledger.backupEmpty') }}
+                        />
                       </Card>
                     </Col>
                   </Row>
@@ -3341,6 +3494,21 @@ function App() {
                                     setCategoryEditForm({ ...categoryEditForm, minor: e.target.value })
                                   }
                                 />
+                              </Form.Item>
+                            </Col>
+                          </Row>
+                          <Row gutter={12}>
+                            <Col xs={24} md={12}>
+                              <Form.Item label={t('config.scope')}>
+                                <Select
+                                  value={categoryEditForm.scope}
+                                  onChange={(value) =>
+                                    setCategoryEditForm({ ...categoryEditForm, scope: value })
+                                  }
+                                >
+                                  <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
+                                  <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                                </Select>
                               </Form.Item>
                             </Col>
                           </Row>
@@ -3565,6 +3733,17 @@ function App() {
                                 />
                               </Form.Item>
                             </Col>
+                            <Col xs={24} md={8}>
+                              <Form.Item label={t('config.scope')}>
+                                <Select
+                                  value={ruleEditForm.scope}
+                                  onChange={(value) => setRuleEditForm({ ...ruleEditForm, scope: value })}
+                                >
+                                  <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
+                                  <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                                </Select>
+                              </Form.Item>
+                            </Col>
                           </Row>
                         </Form>
                       </Modal>
@@ -3600,7 +3779,7 @@ function App() {
       >
         <p>{t('ledger.deleteConfirm')}</p>
         <p style={{ color: '#ff4d4f', marginTop: 8 }}>
-          此操作将删除账本及其所有账单数据，是否继续？
+          此操作将删除账本及其所有账单数据，并生成备份可供恢复。
         </p>
       </Modal>
 

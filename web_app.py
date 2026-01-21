@@ -223,9 +223,51 @@ def update_ledger(ledger_id):
 @app.route('/api/ledgers/<int:ledger_id>', methods=['DELETE'])
 def delete_ledger(ledger_id):
     init_processors(need_db=True)
-    # Optional: could check if bills exist, but keep simple
+    global _default_ledger_id
+    ledgers = enhanced_db.list_ledgers()
+    if len(ledgers) <= 1:
+        return jsonify({'success': False, 'error': '至少保留一个账本', 'code': 'last_ledger'}), 400
+    if not any(l.get('id') == ledger_id for l in ledgers):
+        return jsonify({'success': False, 'error': '账本不存在', 'code': 'not_found'}), 404
     deleted = enhanced_db.delete_ledger(ledger_id)
-    return jsonify({'success': deleted})
+    if deleted:
+        _default_ledger_id = enhanced_db.get_default_ledger_id()
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': '删除失败'}), 500
+
+
+@app.route('/api/ledger-backups', methods=['GET'])
+def list_ledger_backups():
+    init_processors(need_db=True)
+    backups = enhanced_db.list_ledger_backups()
+    return jsonify({'success': True, 'backups': backups})
+
+
+@app.route('/api/ledger-backups/<int:backup_id>/restore', methods=['POST'])
+def restore_ledger_backup(backup_id):
+    init_processors(need_db=True)
+    global _default_ledger_id
+    result = enhanced_db.restore_ledger_backup(backup_id)
+    if not result.get('success'):
+        code = result.get('error') or 'restore_failed'
+        msg_map = {
+            'backup_not_found': '备份不存在',
+            'backup_invalid': '备份格式有误',
+            'ledger_exists': '账本已存在，无法恢复',
+            'restore_failed': '恢复失败',
+        }
+        return jsonify({'success': False, 'error': msg_map.get(code, '恢复失败'), 'code': code}), 400
+    _default_ledger_id = enhanced_db.get_default_ledger_id()
+    return jsonify({'success': True, 'ledger_id': result.get('ledger_id'), 'ledger_name': result.get('ledger_name')})
+
+
+@app.route('/api/ledger-backups/<int:backup_id>', methods=['DELETE'])
+def delete_ledger_backup(backup_id):
+    init_processors(need_db=True)
+    deleted = enhanced_db.delete_ledger_backup(backup_id)
+    if deleted:
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': '备份不存在'}), 404
 
 @app.route('/api/save', methods=['POST'])
 def save_bills():
@@ -1138,6 +1180,7 @@ def get_category_groups():
                 'major': group.major,
                 'minor': group.minor,
                 'full_name': format_category_name(group.major, group.minor),
+                'ledger_id': group.ledger_id
                 # 'created_at': group.created_at,
                 # 'updated_at': group.updated_at
             })
@@ -1204,7 +1247,6 @@ def update_category_group(category_id):
     """Update a category group"""
     try:
         init_processors()
-        ledger_id = get_ledger_id_from_request()
         data = request.get_json()
         if not data:
             return jsonify({
@@ -1227,8 +1269,14 @@ def update_category_group(category_id):
                 'error': 'Missing required field: major'
             }), 400
 
+        if 'ledger_id' in data:
+            ledger_raw = data.get('ledger_id')
+            ledger_id = None if ledger_raw in (None, '', 'null') else int(ledger_raw)
+        else:
+            ledger_id = existing.ledger_id
         existing.major = major
         existing.minor = minor
+        existing.ledger_id = ledger_id
         enhanced_db.save_category_group(existing)
 
         return jsonify({
@@ -1442,6 +1490,9 @@ def update_category_rule(rule_id):
             rule.category_id = data['category_id']
         if 'priority' in data:
             rule.priority = int(data['priority'])
+        if 'ledger_id' in data:
+            ledger_raw = data.get('ledger_id')
+            rule.ledger_id = None if ledger_raw in (None, '', 'null') else int(ledger_raw)
         
         # Save updated rule
         enhanced_db.save_category_rule(rule)
