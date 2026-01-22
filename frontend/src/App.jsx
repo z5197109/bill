@@ -5,6 +5,7 @@ import {
   Col,
   DatePicker,
   Divider,
+  Alert,
   Form,
   Input,
   InputNumber,
@@ -41,167 +42,167 @@ const { Title, Text } = Typography
 const { RangePicker } = DatePicker
 
 const I18N = {
-    appTitle: '账单助手 - React',
-    appSubtitle: '上传识别、消费分析、分类配置',
-    tabs: ['财务看板', '上传识别', '消费分析', '设置'],
-    settings: {
-      categories: '分类与规则',
-      ledger: '账本',
-    },
-    ledger: {
-      label: '账本',
-      section: '账本',
-      reload: '刷新账本',
-      name: '名称',
-      budget: '月预算',
-      save: '保存',
-      delete: '删除',
-      deleteBackup: '删除备份',
-      newLedger: '新建账本',
-      create: '创建',
-      deleteConfirm: '删除当前账本？账单将被移除，并自动生成备份。',
-      deleteLast: '至少保留一个账本',
-      backupsTitle: '账本备份',
-      backupLedger: '账本',
-      backupAt: '备份时间',
-      backupAction: '操作',
-      restore: '恢复',
-      restoreConfirm: '确认恢复该备份？',
-      deleteBackupConfirm: '确认删除该备份？',
-      backupEmpty: '暂无备份',
-    },
-    upload: {
-      title: '上传识别',
-      drop: '将图片拖到此处或',
-      choose: '选择文件',
-      billDate: '账单日期',
-      today: '今天',
-      run: '开始识别',
-      addManual: '手动新增一行',
-      results: '识别结果',
-      saveAll: '保存全部',
-      deleteSelected: '删除选中',
-      headers: ['文件', '商户 / 关键词', '金额', '分类', '日期'],
-    },
-    analytics: {
-      title: '消费分析',
-      keywordPH: '关键词',
-      allMajors: '全部大类',
-      allMinors: '全部小类',
-      rangeToday: '当天',
-      rangeWeek: '当周',
-      rangeMonth: '当月',
-      rangeYear: '当年',
-      refresh: '刷新',
-      reset: '重置',
-      totalAmount: '总金额',
-      count: '笔数',
-      daysCovered: '覆盖天数',
-      dailyAvg: '日均',
-      includeInBudget: '计入预算',
-      headers: ['日期', '商户', '分类', '金额'],
-      prev: '上一页',
-      next: '下一页',
-    },
-    config: {
-      categoriesTitle: '分类列表',
-      major: '大类',
-      minor: '小类',
-      scope: '作用域',
-      scopeCurrent: '当前账本',
-      scopeGlobal: '跨账本',
-      addCategory: '添加分类',
-      noCategories: '暂无分类，请在上方添加。',
-      rulesTitle: '分类规则',
-      keyword: '关键词',
-      category: '分类',
-      priority: '优先级',
-      addRule: '添加规则',
-      action: '操作',
-      delete: '删除',
-      tableHeaders: ['关键词', '分类', '优先级', '操作'],
-      createButton: '新增',
-      manageButton: '查看修改',
-      createCategoryTitle: '新增分类',
-      manageCategoryTitle: '查看修改分类',
-      createRuleTitle: '新增规则',
-      manageRuleTitle: '查看修改规则',
-      filterKeyword: '关键词',
-      filterMajor: '大类',
-      filterMinor: '小类',
-    },
-    recurring: {
-      title: '周期性账单',
-      amount: '金额',
-      keyword: '关键词',
-      category: '分类',
-      note: '备注',
-      scheduleType: '循环方式',
-      scheduleWeekly: '每周',
-      scheduleMonthly: '每月',
-      weekday: '星期',
-      monthDay: '日期',
-      scheduleValue: '日期/星期',
-      startDate: '开始日期',
-      endDate: '结束日期',
-      enabled: '启用',
-      includeInBudget: '计入预算',
-      add: '新增规则',
-      createTitle: '新增周期性账单',
-      manageTitle: '查看修改周期性账单',
-      createButton: '新增',
-      manageButton: '查看修改',
-    },
-    toasts: {
-      loadLedgersFail: '加载账本失败',
-      ledgerSaved: '账本已保存',
-      ledgerSaveFail: '保存失败',
-      ledgerNameRequired: '账本名称不能为空',
-      ledgerCreated: '新账本已创建',
-      ledgerCreateFail: '创建失败',
-      ledgerDeleted: '账本已删除',
-      ledgerDeleteFail: '删除失败',
-      ledgerDeleteLast: '至少保留一个账本',
-      enterLedgerName: '请输入账本名称',
-      loadLedgerBackupsFail: '加载备份失败',
-      ledgerRestored: '账本已恢复',
-      ledgerRestoreFail: '恢复失败',
-      backupDeleted: '备份已删除',
-      backupDeleteFail: '删除备份失败',
-      loadCategoriesFail: '加载分类失败',
-      loadRulesFail: '加载规则失败',
-      categoryAdded: '分类已添加',
-      categoryUpdated: '分类已更新',
-      categoryAddFail: '添加分类失败',
-      categoryDeleted: '分类已删除',
-      categoryDeleteFail: '删除分类失败',
-      ruleAdded: '规则已添加',
-      ruleUpdated: '规则已更新',
-      ruleAddFail: '添加规则失败',
-      ruleDeleted: '规则已删除',
-      ruleDeleteFail: '删除规则失败',
-      chooseImage: '请先选择图片文件',
-      skipDup: '已跳过重复文件',
-      uploadFail: '上传失败',
-      ocrDone: '识别完成：{count} 条记录',
-      saveNone: '没有可保存的记录',
-      saveFail: '保存失败',
-      saveDone: '已保存',
-      refreshFail: '刷新失败',
-      loadRecurringFail: '加载周期性规则失败',
-      recurringAdded: '周期性规则已添加',
-      recurringAddFail: '添加周期性规则失败',
-      recurringUpdated: '周期性规则已更新',
-      recurringUpdateFail: '更新周期性规则失败',
-      recurringDeleted: '周期性规则已删除',
-      recurringDeleteFail: '删除周期性规则失败',
-    },
-    confirm: {
-      deleteCategory: '删除该分类？',
-      deleteRule: '删除该规则？',
-      deleteRecurring: '删除该周期性规则？',
-    },
-  }
+  appTitle: '账单助手 - React',
+  appSubtitle: '上传识别、消费分析、分类配置',
+  tabs: ['财务看板', '上传识别', '消费分析', '设置'],
+  settings: {
+    categories: '分类与规则',
+    ledger: '账本',
+  },
+  ledger: {
+    label: '账本',
+    section: '账本',
+    reload: '刷新账本',
+    name: '名称',
+    budget: '月预算',
+    save: '保存',
+    delete: '删除',
+    deleteBackup: '删除备份',
+    newLedger: '新建账本',
+    create: '创建',
+    deleteConfirm: '删除当前账本？账单将被移除，并自动生成备份。',
+    deleteLast: '至少保留一个账本',
+    backupsTitle: '账本备份',
+    backupLedger: '账本',
+    backupAt: '备份时间',
+    backupAction: '操作',
+    restore: '恢复',
+    restoreConfirm: '确认恢复该备份？',
+    deleteBackupConfirm: '确认删除该备份？',
+    backupEmpty: '暂无备份',
+  },
+  upload: {
+    title: '上传识别',
+    drop: '将图片拖到此处或',
+    choose: '选择文件',
+    billDate: '账单日期',
+    today: '今天',
+    run: '开始识别',
+    addManual: '手动新增一行',
+    results: '识别结果',
+    saveAll: '保存全部',
+    deleteSelected: '删除选中',
+    headers: ['文件', '商户 / 关键词', '金额', '分类', '日期'],
+  },
+  analytics: {
+    title: '消费分析',
+    keywordPH: '关键词',
+    allMajors: '全部大类',
+    allMinors: '全部小类',
+    rangeToday: '当天',
+    rangeWeek: '当周',
+    rangeMonth: '当月',
+    rangeYear: '当年',
+    refresh: '刷新',
+    reset: '重置',
+    totalAmount: '总金额',
+    count: '笔数',
+    daysCovered: '覆盖天数',
+    dailyAvg: '日均',
+    includeInBudget: '计入预算',
+    headers: ['日期', '商户', '分类', '金额'],
+    prev: '上一页',
+    next: '下一页',
+  },
+  config: {
+    categoriesTitle: '分类列表',
+    major: '大类',
+    minor: '小类',
+    scope: '作用域',
+    scopeCurrent: '当前账本',
+    scopeGlobal: '跨账本',
+    addCategory: '添加分类',
+    noCategories: '暂无分类，请在上方添加。',
+    rulesTitle: '分类规则',
+    keyword: '关键词',
+    category: '分类',
+    priority: '优先级',
+    addRule: '添加规则',
+    action: '操作',
+    delete: '删除',
+    tableHeaders: ['关键词', '分类', '优先级', '操作'],
+    createButton: '新增',
+    manageButton: '查看修改',
+    createCategoryTitle: '新增分类',
+    manageCategoryTitle: '查看修改分类',
+    createRuleTitle: '新增规则',
+    manageRuleTitle: '查看修改规则',
+    filterKeyword: '关键词',
+    filterMajor: '大类',
+    filterMinor: '小类',
+  },
+  recurring: {
+    title: '周期性账单',
+    amount: '金额',
+    keyword: '关键词',
+    category: '分类',
+    note: '备注',
+    scheduleType: '循环方式',
+    scheduleWeekly: '每周',
+    scheduleMonthly: '每月',
+    weekday: '星期',
+    monthDay: '日期',
+    scheduleValue: '日期/星期',
+    startDate: '开始日期',
+    endDate: '结束日期',
+    enabled: '启用',
+    includeInBudget: '计入预算',
+    add: '新增规则',
+    createTitle: '新增周期性账单',
+    manageTitle: '查看修改周期性账单',
+    createButton: '新增',
+    manageButton: '查看修改',
+  },
+  toasts: {
+    loadLedgersFail: '加载账本失败',
+    ledgerSaved: '账本已保存',
+    ledgerSaveFail: '保存失败',
+    ledgerNameRequired: '账本名称不能为空',
+    ledgerCreated: '新账本已创建',
+    ledgerCreateFail: '创建失败',
+    ledgerDeleted: '账本已删除',
+    ledgerDeleteFail: '删除失败',
+    ledgerDeleteLast: '至少保留一个账本',
+    enterLedgerName: '请输入账本名称',
+    loadLedgerBackupsFail: '加载备份失败',
+    ledgerRestored: '账本已恢复',
+    ledgerRestoreFail: '恢复失败',
+    backupDeleted: '备份已删除',
+    backupDeleteFail: '删除备份失败',
+    loadCategoriesFail: '加载分类失败',
+    loadRulesFail: '加载规则失败',
+    categoryAdded: '分类已添加',
+    categoryUpdated: '分类已更新',
+    categoryAddFail: '添加分类失败',
+    categoryDeleted: '分类已删除',
+    categoryDeleteFail: '删除分类失败',
+    ruleAdded: '规则已添加',
+    ruleUpdated: '规则已更新',
+    ruleAddFail: '添加规则失败',
+    ruleDeleted: '规则已删除',
+    ruleDeleteFail: '删除规则失败',
+    chooseImage: '请先选择图片文件',
+    skipDup: '已跳过重复文件',
+    uploadFail: '上传失败',
+    ocrDone: '识别完成：{count} 条记录',
+    saveNone: '没有可保存的记录',
+    saveFail: '保存失败',
+    saveDone: '已保存',
+    refreshFail: '刷新失败',
+    loadRecurringFail: '加载周期性规则失败',
+    recurringAdded: '周期性规则已添加',
+    recurringAddFail: '添加周期性规则失败',
+    recurringUpdated: '周期性规则已更新',
+    recurringUpdateFail: '更新周期性规则失败',
+    recurringDeleted: '周期性规则已删除',
+    recurringDeleteFail: '删除周期性规则失败',
+  },
+  confirm: {
+    deleteCategory: '删除该分类？',
+    deleteRule: '删除该规则？',
+    deleteRecurring: '删除该周期性规则？',
+  },
+}
 
 const today = () => moment().format('YYYY-MM-DD')
 const buildQuery = (params) =>
@@ -298,8 +299,10 @@ function App() {
   const [recurringCreateOpen, setRecurringCreateOpen] = useState(false)
   const [recurringManageOpen, setRecurringManageOpen] = useState(false)
   const [categoryCreateOpen, setCategoryCreateOpen] = useState(false)
+  const [categoryCreateError, setCategoryCreateError] = useState('')
   const [categoryManageOpen, setCategoryManageOpen] = useState(false)
   const [ruleCreateOpen, setRuleCreateOpen] = useState(false)
+  const [ruleCreateError, setRuleCreateError] = useState('')
   const [ruleManageOpen, setRuleManageOpen] = useState(false)
   const [categoryEditOpen, setCategoryEditOpen] = useState(false)
   const [categoryEditForm, setCategoryEditForm] = useState({ id: null, major: '', minor: '', scope: 'current' })
@@ -753,8 +756,8 @@ function App() {
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
-          const res = await fetch(`/api/templates/${encodeURIComponent(templateName)}`, { 
-            method: 'DELETE' 
+          const res = await fetch(`/api/templates/${encodeURIComponent(templateName)}`, {
+            method: 'DELETE'
           })
           const data = await res.json()
           if (data.success) {
@@ -780,10 +783,10 @@ function App() {
 
   const confirmTemplateDelete = async () => {
     if (!templateToDelete) return
-    
+
     try {
-      const res = await fetch(`/api/templates/${encodeURIComponent(templateToDelete)}`, { 
-        method: 'DELETE' 
+      const res = await fetch(`/api/templates/${encodeURIComponent(templateToDelete)}`, {
+        method: 'DELETE'
       })
       const data = await res.json()
       if (data.success) {
@@ -802,7 +805,7 @@ function App() {
 
   const saveTemplateEdit = async () => {
     if (!editingTemplate) return
-    
+
     try {
       const res = await fetch('/api/templates', {
         method: 'POST',
@@ -830,10 +833,10 @@ function App() {
 
   const confirmRecurringDelete = async () => {
     if (!recurringToDelete) return
-    
+
     try {
-      const res = await fetch(`/api/recurring-rules/${recurringToDelete}`, { 
-        method: 'DELETE' 
+      const res = await fetch(`/api/recurring-rules/${recurringToDelete}`, {
+        method: 'DELETE'
       })
       const data = await res.json()
       if (data.success) {
@@ -852,7 +855,7 @@ function App() {
 
   const saveRecurringEdit = async () => {
     if (!editingRecurringRule) return
-    
+
     try {
       const payload = {
         amount: Number(editingRecurringRule.amount) || 0,
@@ -866,7 +869,7 @@ function App() {
         enabled: Boolean(editingRecurringRule.enabled),
         include_in_budget: Boolean(editingRecurringRule.include_in_budget),
       }
-      
+
       const res = await fetch(`/api/recurring-rules/${editingRecurringRule.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -887,8 +890,11 @@ function App() {
   }
 
   const addCategoryGroup = async () => {
+    setCategoryCreateError('')
     if (!catForm.major.trim()) {
-      pushToast(t('toasts.categoryAddFail'), 'warn')
+      const err = t('toasts.categoryAddFail')
+      setCategoryCreateError(err)
+      pushToast(err, 'warn')
       return false
     }
     try {
@@ -902,17 +908,31 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const data = await res.json()
-      if (data.success) {
+      let data = null
+      try {
+        data = await res.json()
+      } catch {
+        data = null
+      }
+      if (!res.ok) {
+        const err = data?.error || t('toasts.categoryAddFail')
+        setCategoryCreateError(err)
+        return false
+      }
+      if (data?.success) {
         pushToast(t('toasts.categoryAdded'), 'success')
+        setCategoryCreateError('')
         setCatForm({ major: '', minor: '', scope: catForm.scope })
         loadCategories()
         return true
       } else {
-        pushToast(data.error || t('toasts.categoryAddFail'), 'error')
+        const err = data?.error || t('toasts.categoryAddFail')
+        setCategoryCreateError(err)
       }
     } catch {
-      pushToast(t('toasts.categoryAddFail'), 'error')
+      const err = t('toasts.categoryAddFail')
+      setCategoryCreateError(err)
+      pushToast(err, 'error')
     }
     return false
   }
@@ -933,13 +953,16 @@ function App() {
   }
 
   const addRule = async () => {
+    setRuleCreateError('')
     const categoryRecord =
       (ruleForm.category_id && categories.find((c) => c.id === ruleForm.category_id)) ||
       categories.find((c) => c.full_name === ruleForm.category)
     const categoryName = categoryRecord?.full_name || ruleForm.category
     const categoryId = ruleForm.category_id ?? categoryRecord?.id ?? null
     if (!ruleForm.keyword.trim() || !categoryName) {
-      pushToast(t('toasts.ruleAddFail'), 'warn')
+      const err = t('toasts.ruleAddFail')
+      setRuleCreateError(err)
+      pushToast(err, 'warn')
       return false
     }
     try {
@@ -955,9 +978,20 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-      const data = await res.json()
-      if (data.success) {
+      let data = null
+      try {
+        data = await res.json()
+      } catch {
+        data = null
+      }
+      if (!res.ok) {
+        const err = data?.error || t('toasts.ruleAddFail')
+        setRuleCreateError(err)
+        return false
+      }
+      if (data?.success) {
         pushToast(t('toasts.ruleAdded'), 'success')
+        setRuleCreateError('')
         setRuleForm({
           keyword: '',
           major: '',
@@ -970,10 +1004,13 @@ function App() {
         loadRules()
         return true
       } else {
-        pushToast(data.error || t('toasts.ruleAddFail'), 'error')
+        const err = data?.error || t('toasts.ruleAddFail')
+        setRuleCreateError(err)
       }
     } catch {
-      pushToast(t('toasts.ruleAddFail'), 'error')
+      const err = t('toasts.ruleAddFail')
+      setRuleCreateError(err)
+      pushToast(err, 'error')
     }
     return false
   }
@@ -1026,14 +1063,23 @@ function App() {
           }),
         },
       )
-      const data = await res.json()
-      if (data.success) {
+      let data = null
+      try {
+        data = await res.json()
+      } catch {
+        data = null
+      }
+      if (!res.ok) {
+        Modal.error({ title: '提示', content: data?.error || t('toasts.categoryAddFail') })
+        return false
+      }
+      if (data?.success) {
         pushToast(t('toasts.categoryUpdated'), 'success')
         loadCategories()
         loadRules()
         return true
       } else {
-        pushToast(data.error || t('toasts.categoryAddFail'), 'error')
+        Modal.error({ title: '提示', content: data?.error || t('toasts.categoryAddFail') })
       }
     } catch {
       pushToast(t('toasts.categoryAddFail'), 'error')
@@ -1257,12 +1303,12 @@ function App() {
     setRecurringRules((prev) =>
       prev.map((item) =>
         item.id === id
-          ? { 
-              ...item, 
-              minor: match?.minor || '', 
-              category_id: value || null, 
-              category: match ? match.full_name : '' 
-            }
+          ? {
+            ...item,
+            minor: match?.minor || '',
+            category_id: value || null,
+            category: match ? match.full_name : ''
+          }
           : item,
       ),
     )
@@ -1288,10 +1334,10 @@ function App() {
       prev.map((item) =>
         item.id === id
           ? {
-              ...item,
-              start_date: start,
-              end_date: item.end_date && start && item.end_date < start ? start : item.end_date,
-            }
+            ...item,
+            start_date: start,
+            end_date: item.end_date && start && item.end_date < start ? start : item.end_date,
+          }
           : item,
       ),
     )
@@ -1648,9 +1694,9 @@ function App() {
       const res = await fetch('/api/bills/batch-delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           bill_ids: selectedRowKeys,
-          ledger_id: currentLedgerId 
+          ledger_id: currentLedgerId
         }),
       })
       const data = await res.json()
@@ -1684,10 +1730,10 @@ function App() {
       const res = await fetch('/api/bills/batch-update-budget', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           bill_ids: selectedRowKeys,
           include_in_budget: batchBudgetAction,
-          ledger_id: currentLedgerId 
+          ledger_id: currentLedgerId
         }),
       })
       const data = await res.json()
@@ -2144,8 +2190,8 @@ function App() {
       width: 150,
       render: (_, record) => (
         <Space>
-          <Button 
-            type="link" 
+          <Button
+            type="link"
             onClick={() => {
               setEditingRecurringRule(record)
               setRecurringEditOpen(true)
@@ -2219,8 +2265,8 @@ function App() {
       width: 150,
       render: (_, record) => (
         <Space>
-          <Button 
-            type="link" 
+          <Button
+            type="link"
             onClick={() => {
               setEditingTemplate(record)
               setTemplateEditOpen(true)
@@ -2228,10 +2274,10 @@ function App() {
           >
             编辑
           </Button>
-          <Button 
-            danger 
-            type="link" 
-            icon={<DeleteOutlined />} 
+          <Button
+            danger
+            type="link"
+            icon={<DeleteOutlined />}
             onClick={() => handleTemplateDelete(record.name)}
           >
             删除
@@ -2326,7 +2372,7 @@ function App() {
 
         <Tabs activeKey={tab} onChange={setTab}>
           <Tabs.TabPane tab={t('tabs.0')} key="dashboard">
-            <Dashboard 
+            <Dashboard
               currentLedgerId={currentLedgerId}
               onAddBill={() => setTab('upload')}
               refreshTrigger={dashboardRefreshTrigger}
@@ -2335,7 +2381,7 @@ function App() {
 
           <Tabs.TabPane tab={t('tabs.1')} key="upload">
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
-              
+
 
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
                 <Card title={t('upload.title')}>
@@ -2546,27 +2592,27 @@ function App() {
                   <div style={{ marginBottom: 16, padding: '8px 16px', backgroundColor: '#f0f2f5', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Text>已选择 {selectedRowKeys.length} 项</Text>
                     <Space>
-                      <Button 
-                        size="small" 
+                      <Button
+                        size="small"
                         onClick={() => setSelectedRowKeys([])}
                       >
                         取消选择
                       </Button>
-                      <Button 
-                        size="small" 
+                      <Button
+                        size="small"
                         onClick={() => batchToggleBudget(false)}
                       >
                         不计入预算
                       </Button>
-                      <Button 
-                        size="small" 
+                      <Button
+                        size="small"
                         onClick={() => batchToggleBudget(true)}
                       >
                         计入预算
                       </Button>
-                      <Button 
-                        danger 
-                        size="small" 
+                      <Button
+                        danger
+                        size="small"
                         icon={<DeleteOutlined />}
                         onClick={batchDeleteBills}
                       >
@@ -2599,9 +2645,9 @@ function App() {
                       const sortInfo = Array.isArray(sorter) ? sorter[0] : sorter
                       const nextSort = sortInfo?.order
                         ? {
-                            field: sortInfo?.field || '',
-                            order: sortInfo?.order || '',
-                          }
+                          field: sortInfo?.field || '',
+                          order: sortInfo?.order || '',
+                        }
                         : { field: '', order: '' }
                       setAnalyticsSort(nextSort)
                       refreshAnalytics(nextPage, null, nextSort)
@@ -3031,8 +3077,8 @@ function App() {
                                   <Col xs={24} md={12}>
                                     <Form.Item label="商品名行号">
                                       <Input
-                                        value={Array.isArray(editingTemplate.extract?.item?.line) 
-                                          ? editingTemplate.extract.item.line.join(',') 
+                                        value={Array.isArray(editingTemplate.extract?.item?.line)
+                                          ? editingTemplate.extract.item.line.join(',')
                                           : editingTemplate.extract?.item?.line || ''}
                                         onChange={(e) => {
                                           const value = e.target.value
@@ -3055,8 +3101,8 @@ function App() {
                                   <Col xs={24} md={12}>
                                     <Form.Item label="金额行号">
                                       <Input
-                                        value={Array.isArray(editingTemplate.extract?.amount?.line) 
-                                          ? editingTemplate.extract.amount.line.join(',') 
+                                        value={Array.isArray(editingTemplate.extract?.amount?.line)
+                                          ? editingTemplate.extract.amount.line.join(',')
                                           : editingTemplate.extract?.amount?.line || ''}
                                         onChange={(e) => {
                                           const value = e.target.value
@@ -3235,7 +3281,7 @@ function App() {
                                         onChange={(date) => setEditingRecurringRule({
                                           ...editingRecurringRule,
                                           start_date: date ? date.format('YYYY-MM-DD') : '',
-                                          end_date: editingRecurringRule.end_date && date && editingRecurringRule.end_date < date.format('YYYY-MM-DD') 
+                                          end_date: editingRecurringRule.end_date && date && editingRecurringRule.end_date < date.format('YYYY-MM-DD')
                                             ? date.format('YYYY-MM-DD') : editingRecurringRule.end_date
                                         })}
                                         style={{ width: '100%' }}
@@ -3321,10 +3367,10 @@ function App() {
                           <p style={{ marginBottom: 16, color: '#666' }}>
                             删除当前账本将移除所有相关数据，但会自动生成备份，可在下方恢复。
                           </p>
-                          <Button 
-                            danger 
+                          <Button
+                            danger
                             size="large"
-                            icon={<DeleteOutlined />} 
+                            icon={<DeleteOutlined />}
                             onClick={deleteLedger}
                             disabled={!currentLedgerId || ledgers.length <= 1}
                           >
@@ -3375,7 +3421,10 @@ function App() {
                       <Modal
                         title={t('config.createCategoryTitle')}
                         open={categoryCreateOpen}
-                        onCancel={() => setCategoryCreateOpen(false)}
+                        onCancel={() => {
+                          setCategoryCreateOpen(false)
+                          setCategoryCreateError('')
+                        }}
                         onOk={async () => {
                           const ok = await addCategoryGroup()
                           if (ok) setCategoryCreateOpen(false)
@@ -3385,6 +3434,14 @@ function App() {
                         style={{ top: '20%' }}
                         width={700}
                       >
+                        {categoryCreateError ? (
+                          <Alert
+                            type="error"
+                            message={categoryCreateError}
+                            showIcon
+                            style={{ marginBottom: 12 }}
+                          />
+                        ) : null}
                         <Form layout="vertical">
                           <Row gutter={12}>
                             <Col xs={24} md={12}>
@@ -3524,7 +3581,13 @@ function App() {
                         </Col>
                         <Col>
                           <Space>
-                            <Button type="primary" onClick={() => setRuleCreateOpen(true)}>
+                            <Button
+                              type="primary"
+                              onClick={() => {
+                                setRuleCreateError('')
+                                setRuleCreateOpen(true)
+                              }}
+                            >
                               {t('config.createButton')}
                             </Button>
                             <Button
@@ -3542,7 +3605,10 @@ function App() {
                       <Modal
                         title={t('config.createRuleTitle')}
                         open={ruleCreateOpen}
-                        onCancel={() => setRuleCreateOpen(false)}
+                        onCancel={() => {
+                          setRuleCreateOpen(false)
+                          setRuleCreateError('')
+                        }}
                         onOk={async () => {
                           const ok = await addRule()
                           if (ok) setRuleCreateOpen(false)
@@ -3552,6 +3618,14 @@ function App() {
                         style={{ top: '20%' }}
                         width={900}
                       >
+                        {ruleCreateError ? (
+                          <Alert
+                            type="error"
+                            message={ruleCreateError}
+                            showIcon
+                            style={{ marginBottom: 12 }}
+                          />
+                        ) : null}
                         <Form layout="vertical">
                           <Row gutter={12}>
                             <Col xs={24} md={8}>

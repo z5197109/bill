@@ -28,6 +28,7 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
   const [current, setCurrent] = useState(0)
   const [loading, setLoading] = useState(false)
   const [ocrData, setOcrData] = useState(null)
+  const [messageApi, messageContext] = message.useMessage()
   const [form] = Form.useForm()
   const [selectedLines, setSelectedLines] = useState({
     item: null,
@@ -51,13 +52,13 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
 
       if (result.success) {
         setOcrData(result.data)
-        message.success('OCR识别成功')
+        messageApi.success('OCR识别成功')
         setCurrent(1)
       } else {
-        message.error(result.error || 'OCR识别失败')
+        messageApi.error(result.error || 'OCR识别失败')
       }
     } catch (error) {
-      message.error('上传失败: ' + error.message)
+      messageApi.error('上传失败: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -67,10 +68,16 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
 
   // Step 2: 配置模板
   const handleNext = async () => {
+    if (current === 0) {
+      if (!ocrData) {
+        messageApi.warning('请先上传账单截图并完成识别')
+        return
+      }
+    }
     if (current === 1) {
       // 验证是否选择了必要的行
       if (selectedLines.item === null || selectedLines.amount === null) {
-        message.warning('请至少选择商品名称和金额所在行')
+        messageApi.warning('请至少选择商品名称和金额所在行')
         return
       }
       try {
@@ -138,16 +145,16 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
       const result = await response.json()
 
       if (result.success) {
-        message.success('模板保存成功')
+        messageApi.success('模板保存成功')
         if (onSuccess) {
           onSuccess(result.data)
         }
         handleClose()
       } else {
-        message.error(result.error || '保存失败')
+        messageApi.error(result.error || '保存失败')
       }
     } catch (error) {
-      message.error('保存失败: ' + error.message)
+      messageApi.error('保存失败: ' + error.message)
     } finally {
       setLoading(false)
     }
@@ -357,6 +364,7 @@ function TemplateWizardModal({ visible, onClose, onSuccess }) {
       destroyOnClose
       style={{ top: '20%' }}
     >
+      {messageContext}
       <Steps current={current} style={{ marginBottom: 24 }}>
         {steps.map((item, index) => (
           <Steps.Step key={item.title} title={item.title} />

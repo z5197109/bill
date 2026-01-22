@@ -302,6 +302,7 @@ class EnhancedDatabaseManager:
         cursor.execute('SELECT COUNT(*) FROM category_rules')
         if cursor.fetchone()[0] == 0:
             self._init_category_rules_from_config(cursor)
+        self._ensure_config_rules_global(cursor)
 
         # Initialize categories from existing rules or config if table is empty
         cursor.execute('SELECT COUNT(*) FROM categories')
@@ -762,11 +763,39 @@ class EnhancedDatabaseManager:
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             cursor.execute('''
-                INSERT INTO category_rules (keyword, category, priority, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO category_rules (keyword, category, priority, created_at, updated_at, ledger_id)
+                VALUES (?, ?, ?, ?, ?, NULL)
             ''', (keyword, category, priority, now, now))
         
         print("✅ [DB Init] 分类规则初始化完成")
+
+    def _ensure_config_rules_global(self, cursor):
+        """Ensure config-based rules are stored as global (ledger_id NULL)."""
+        if not config.CATEGORY_RULES:
+            return
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        for keyword, category in config.CATEGORY_RULES.items():
+            cursor.execute(
+                "SELECT id FROM category_rules WHERE keyword=? AND category=? AND ledger_id IS NULL",
+                (keyword, category),
+            )
+            if cursor.fetchone():
+                continue
+            cursor.execute(
+                "SELECT id FROM category_rules WHERE keyword=? AND category=? ORDER BY id LIMIT 1",
+                (keyword, category),
+            )
+            row = cursor.fetchone()
+            if row:
+                cursor.execute("UPDATE category_rules SET ledger_id=NULL WHERE id=?", (row[0],))
+                continue
+            cursor.execute(
+                '''
+                INSERT INTO category_rules (keyword, category, priority, created_at, updated_at, ledger_id)
+                VALUES (?, ?, ?, ?, ?, NULL)
+                ''',
+                (keyword, category, 2, now, now),
+            )
 
     def _format_category_name(self, major: str, minor: str) -> str:
         major = (major or "").strip()
@@ -1645,6 +1674,52 @@ class EnhancedDatabaseManager:
         groups = self.get_category_groups(ledger_id)
         names = [self._format_category_name(group.major, group.minor) for group in groups]
         return [name for name in names if name]
+
+    def category_group_conflict(self, major: str, minor: str, ledger_id: Optional[int], exclude_id: Optional[int] = None) -> bool:
+        major = (major or "").strip()
+        minor = (minor or "").strip()
+        if not major:
+            return False
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        query = "SELECT id FROM categories WHERE LOWER(major) = LOWER(?) AND LOWER(minor) = LOWER(?)"
+        params: List[Any] = [major, minor]
+        if ledger_id is not None:
+            query += " AND (ledger_id IS NULL OR ledger_id = ?)"
+            params.append(ledger_id)
+        if exclude_id:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        cursor.execute(query, params)
+        exists = cursor.fetchone() is not None
+        conn.close()
+        return exists
+
+    def category_rule_combo_conflict(
+        self,
+        keyword: str,
+        category_name: str,
+        ledger_id: Optional[int],
+        exclude_id: Optional[int] = None,
+    ) -> bool:
+        keyword = (keyword or "").strip()
+        category_name = (category_name or "").strip()
+        if not keyword or not category_name:
+            return False
+        conn = sqlite3.connect(self.db_name)
+        cursor = conn.cursor()
+        query = "SELECT id FROM category_rules WHERE LOWER(keyword) = LOWER(?) AND LOWER(category) = LOWER(?)"
+        params: List[Any] = [keyword, category_name]
+        if ledger_id is not None:
+            query += " AND (ledger_id IS NULL OR ledger_id = ?)"
+            params.append(ledger_id)
+        if exclude_id:
+            query += " AND id != ?"
+            params.append(exclude_id)
+        cursor.execute(query, params)
+        exists = cursor.fetchone() is not None
+        conn.close()
+        return exists
 
     def _row_to_category_group(self, row) -> CategoryGroup:
         """Convert database row to CategoryGroup object"""

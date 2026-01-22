@@ -281,7 +281,7 @@ def save_bills():
         if not data or 'bills' not in data:
             return jsonify({
                 'success': False,
-                'error': 'No bill data provided'
+                'error': '同一分类下关键词已存在'
             }), 400
         
         bills = data['bills']
@@ -1216,6 +1216,12 @@ def create_category_group():
                 'error': 'Missing required field: major'
             }), 400
 
+        if enhanced_db.category_group_conflict(major, minor, ledger_id):
+            return jsonify({
+                'success': False,
+                'error': '分类已存在'
+            }), 400
+
         group = CategoryGroup(major=major, minor=minor, ledger_id=ledger_id)
         group_id = enhanced_db.save_category_group(group)
         group.id = group_id
@@ -1274,6 +1280,12 @@ def update_category_group(category_id):
             ledger_id = None if ledger_raw in (None, '', 'null') else int(ledger_raw)
         else:
             ledger_id = existing.ledger_id
+        if enhanced_db.category_group_conflict(major, minor, ledger_id, exclude_id=category_id):
+            return jsonify({
+                'success': False,
+                'error': '分类已存在'
+            }), 400
+
         existing.major = major
         existing.minor = minor
         existing.ledger_id = ledger_id
@@ -1406,14 +1418,16 @@ def create_category_rule():
         if not rule.category and not rule.category_id:
             return jsonify({'success': False, 'error': 'Category is required'}), 400
         
-        # Validate keyword uniqueness
-        existing_rules = enhanced_db.get_category_rules(ledger_id)
-        for existing_rule in existing_rules:
-            if existing_rule.keyword.lower() == rule.keyword.lower():
-                return jsonify({
-                    'success': False,
-                    'error': f'Keyword "{rule.keyword}" already exists'
-                }), 400
+        category_name = rule.category
+        if rule.category_id:
+            category_group = enhanced_db.get_category_group(rule.category_id)
+            if category_group:
+                category_name = format_category_name(category_group.major, category_group.minor)
+        if enhanced_db.category_rule_combo_conflict(rule.keyword, category_name, ledger_id):
+            return jsonify({
+                'success': False,
+                'error': '同一分类下关键词已存在'
+            }), 400
         
         # Save to database
         rule_id = enhanced_db.save_category_rule(rule)
@@ -1474,13 +1488,6 @@ def update_category_rule(rule_id):
         # Update fields
         if 'keyword' in data:
             new_keyword = str(data['keyword']).strip()
-            # Check for keyword uniqueness (excluding current rule)
-            for existing_rule in existing_rules:
-                if existing_rule.id != rule_id and existing_rule.keyword.lower() == new_keyword.lower():
-                    return jsonify({
-                        'success': False,
-                        'error': f'Keyword "{new_keyword}" already exists'
-                    }), 400
             rule.keyword = new_keyword
         
         if 'category' in data:
@@ -1493,6 +1500,17 @@ def update_category_rule(rule_id):
         if 'ledger_id' in data:
             ledger_raw = data.get('ledger_id')
             rule.ledger_id = None if ledger_raw in (None, '', 'null') else int(ledger_raw)
+
+        category_name = rule.category
+        if rule.category_id:
+            category_group = enhanced_db.get_category_group(rule.category_id)
+            if category_group:
+                category_name = format_category_name(category_group.major, category_group.minor)
+        if enhanced_db.category_rule_combo_conflict(rule.keyword, category_name, rule.ledger_id, exclude_id=rule_id):
+            return jsonify({
+                'success': False,
+                'error': '同一分类下关键词已存在'
+            }), 400
         
         # Save updated rule
         enhanced_db.save_category_rule(rule)
