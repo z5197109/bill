@@ -1538,7 +1538,7 @@ class EnhancedDatabaseManager:
             updated_at=row[14] if len(row) > 14 else "",
         )
 
-    # Category Groups CRUD operations
+    # Category Groups CRUD operations (using categories table)
     def get_category_groups(self, ledger_id: Optional[int] = None) -> List[CategoryGroup]:
         """Get all category groups (global + specific ledger)"""
         conn = sqlite3.connect(self.db_name)
