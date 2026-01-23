@@ -1,26 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import vitePluginImp from 'vite-plugin-imp'
 import path from 'path'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     react(),
-    vitePluginImp({
-      libList: [
-        {
-          libName: 'antd',
-          style: (name) => {
-            // App组件不需要单独的样式导入
-            if (name === 'app') {
-              return false
-            }
-            return `antd/es/${name}/style`
-          },
-        },
-      ],
-    }),
   ],
   server: {
     port: 5173,
@@ -33,7 +18,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           react: ['react', 'react-dom'],
-          antd: ['antd', '@ant-design/icons', 'moment'],
+          antd: ['antd', '@ant-design/icons', 'dayjs'],
         },
       },
     },

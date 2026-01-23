@@ -13,7 +13,7 @@ import {
   ReloadOutlined,
   PlusOutlined
 } from '@ant-design/icons'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import { MonthlySpendingCard, BudgetStatusCard, CategoryBreakdownCard, AddBillButton } from './components'
 import PropTypes from 'prop-types'
 
@@ -168,10 +168,10 @@ function Dashboard({ currentLedgerId, onAddBill, refreshTrigger }) {
             {loading && !dashboardData && <Spin size="small" style={{ marginLeft: 8 }} />}
           </Title>
           <Text type="secondary">
-            {moment(metadata.month, 'YYYY-MM').format('YYYY年M月')} 数据概览
+            {dayjs(metadata.month, 'YYYY-MM').format('YYYY年M月')} 数据概览
             {lastRefresh && (
               <Text type="secondary" style={{ marginLeft: 8, fontSize: '12px' }}>
-                • 更新于 {moment(lastRefresh).format('HH:mm')}
+                • 更新于 {dayjs(lastRefresh).format('HH:mm')}
               </Text>
             )}
           </Text>

@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   Col,
+  ConfigProvider,
   DatePicker,
   Divider,
   Alert,
@@ -32,7 +33,7 @@ import {
   UploadOutlined,
   FileTextOutlined,
 } from '@ant-design/icons'
-import moment from 'moment'
+import dayjs from 'dayjs'
 import Dashboard from './Dashboard'
 import { TemplateWizardModal } from './components'
 import './App.css'
@@ -204,7 +205,7 @@ const I18N = {
   },
 }
 
-const today = () => moment().format('YYYY-MM-DD')
+const today = () => dayjs().format('YYYY-MM-DD')
 const buildQuery = (params) =>
   new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')).toString()
 
@@ -1753,7 +1754,7 @@ function App() {
   }
 
   const quickRange = (range) => {
-    const now = moment()
+    const now = dayjs()
     let start = now.clone()
     let end = now.clone()
 
@@ -1960,7 +1961,7 @@ function App() {
       width: 150,
       render: (_, record) => (
         <DatePicker
-          value={record.bill_date ? moment(record.bill_date, 'YYYY-MM-DD') : null}
+          value={record.bill_date ? dayjs(record.bill_date, 'YYYY-MM-DD') : null}
           onChange={(date) => updateResult(record.clientId, 'bill_date', date ? date.format('YYYY-MM-DD') : '')}
           style={{ width: '100%' }}
         />
@@ -2337,8 +2338,17 @@ function App() {
   )
 
   return (
-    <Layout
-      className="app"
+    <ConfigProvider
+      theme={{
+        token: {
+          // 保持与原有主题相似的配置
+          colorPrimary: '#1890ff',
+          borderRadius: 6,
+        },
+      }}
+    >
+      <Layout
+        className="app"
       style={{
         background: `
           radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.08), transparent 25%),
@@ -2411,7 +2421,7 @@ function App() {
                       <Button onClick={addManualRow}>{t('upload.addManual')}</Button>
                       <Text>{t('upload.billDate')}</Text>
                       <DatePicker
-                        value={uploadDate ? moment(uploadDate, 'YYYY-MM-DD') : null}
+                        value={uploadDate ? dayjs(uploadDate, 'YYYY-MM-DD') : null}
                         onChange={(date) => setUploadDate(date ? date.format('YYYY-MM-DD') : today())}
                       />
                     </Space>
@@ -2504,7 +2514,7 @@ function App() {
                     <RangePicker
                       value={
                         analyticsFilters.start_date && analyticsFilters.end_date
-                          ? [moment(analyticsFilters.start_date, 'YYYY-MM-DD'), moment(analyticsFilters.end_date, 'YYYY-MM-DD')]
+                          ? [dayjs(analyticsFilters.start_date, 'YYYY-MM-DD'), dayjs(analyticsFilters.end_date, 'YYYY-MM-DD')]
                           : []
                       }
                       onCalendarChange={(dates) => {
@@ -2734,7 +2744,7 @@ function App() {
                     <Col xs={24} md={8}>
                       <Form.Item label={t('upload.headers')[4]}>
                         <DatePicker
-                          value={billEditForm.bill_date ? moment(billEditForm.bill_date, 'YYYY-MM-DD') : null}
+                          value={billEditForm.bill_date ? dayjs(billEditForm.bill_date, 'YYYY-MM-DD') : null}
                           onChange={(date) =>
                             setBillEditForm({
                               ...billEditForm,
@@ -2943,7 +2953,7 @@ function App() {
                                     <DatePicker
                                       value={
                                         recurringForm.start_date
-                                          ? moment(recurringForm.start_date, 'YYYY-MM-DD')
+                                          ? dayjs(recurringForm.start_date, 'YYYY-MM-DD')
                                           : null
                                       }
                                       onChange={handleRecurringStartDateChange}
@@ -2956,7 +2966,7 @@ function App() {
                                     <DatePicker
                                       allowClear
                                       value={
-                                        recurringForm.end_date ? moment(recurringForm.end_date, 'YYYY-MM-DD') : null
+                                        recurringForm.end_date ? dayjs(recurringForm.end_date, 'YYYY-MM-DD') : null
                                       }
                                       onChange={(date) =>
                                         setRecurringForm({
@@ -3277,7 +3287,7 @@ function App() {
                                   <Col xs={24} md={6}>
                                     <Form.Item label={t('recurring.startDate')}>
                                       <DatePicker
-                                        value={editingRecurringRule.start_date ? moment(editingRecurringRule.start_date, 'YYYY-MM-DD') : null}
+                                        value={editingRecurringRule.start_date ? dayjs(editingRecurringRule.start_date, 'YYYY-MM-DD') : null}
                                         onChange={(date) => setEditingRecurringRule({
                                           ...editingRecurringRule,
                                           start_date: date ? date.format('YYYY-MM-DD') : '',
@@ -3292,7 +3302,7 @@ function App() {
                                     <Form.Item label={t('recurring.endDate')}>
                                       <DatePicker
                                         allowClear
-                                        value={editingRecurringRule.end_date ? moment(editingRecurringRule.end_date, 'YYYY-MM-DD') : null}
+                                        value={editingRecurringRule.end_date ? dayjs(editingRecurringRule.end_date, 'YYYY-MM-DD') : null}
                                         onChange={(date) => setEditingRecurringRule({
                                           ...editingRecurringRule,
                                           end_date: date ? date.format('YYYY-MM-DD') : ''
@@ -3887,6 +3897,7 @@ function App() {
         <p>确定要将选中的 {selectedRowKeys.length} 条账单设为{batchBudgetAction ? '计入预算' : '不计入预算'}吗？</p>
       </Modal>
     </Layout>
+    </ConfigProvider>
   )
 }
 
