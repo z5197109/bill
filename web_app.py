@@ -288,7 +288,7 @@ def save_bills():
         if not bills:
             return jsonify({
                 'success': False,
-                'error': 'No bills to save'
+                'error': '没有可保存的账单'
             }), 400
         
         saved_count = 0
@@ -300,9 +300,9 @@ def save_bills():
                 required_fields = ['merchant', 'amount', 'filename']
                 for field in required_fields:
                     if field not in bill_data:
-                        raise ValueError(f"Missing required field: {field}")
+                        raise ValueError(f"缺少必填字段: {field}")
                 if not (bill_data.get('category') or bill_data.get('category_id')):
-                    raise ValueError("Missing required field: category")
+                    raise ValueError("缺少必填字段: category")
                 
                 # Create enhanced bill object
                 from app.enhanced_storage import EnhancedBill
@@ -321,21 +321,21 @@ def save_bills():
                 
                 # Validate amount
                 if bill.amount < 0:
-                    raise ValueError("Amount cannot be negative")
+                    raise ValueError("金额不能为负数")
                 
                 # Save to enhanced database
                 enhanced_db.save_bill(bill)
                 saved_count += 1
                 
             except Exception as save_error:
-                error_msg = f"Failed to save bill {bill_data.get('filename', 'unknown')}: {str(save_error)}"
+                error_msg = f"保存账单失败 {bill_data.get('filename', 'unknown')}: {str(save_error)}"
                 errors.append(error_msg)
         
         # Determine response
         if saved_count > 0:
-            message = f"Successfully saved {saved_count} bill(s)"
+            message = f"成功保存了 {saved_count} 笔账单"
             if errors:
-                message += f", but {len(errors)} failed"
+                message += f",  {len(errors)} 笔失败"
             
             return jsonify({
                 'success': True,
@@ -347,7 +347,7 @@ def save_bills():
             return jsonify({
                 'success': False,
                 'saved_count': 0,
-                'message': 'No bills were saved',
+                'message': '未保存任何账单',
                 'errors': errors
             }), 400
             
@@ -370,11 +370,11 @@ def upload_files():
         bill_parser.category_rules_loader = lambda: enhanced_db.get_category_rules(ledger_id)
 
     if 'files' not in request.files:
-        return jsonify({'success': False, 'error': 'No files provided'}), 400
+        return jsonify({'success': False, 'error': '未提供文件'}), 400
 
     files = request.files.getlist('files')
     if not files or all(f.filename == '' for f in files):
-        return jsonify({'success': False, 'error': 'No files selected'}), 400
+        return jsonify({'success': False, 'error': '未选择文件'}), 400
 
     bill_date = request.form.get('bill_date') or date.today().strftime('%Y-%m-%d')
 
@@ -390,7 +390,7 @@ def upload_files():
         filename = secure_filename(f.filename)
 
         if not allowed_file(filename):
-            errors.append(f"File {filename}: Unsupported file type")
+            errors.append(f"文件 {filename}: 不支持的文件类型")
             continue
 
         file_id = str(uuid.uuid4())
@@ -398,7 +398,7 @@ def upload_files():
         # ✅ 只读一次：拿到 bytes，用于写盘 + 预览
         image_bytes = f.read()
         if not image_bytes:
-            errors.append(f"File {filename}: Empty file")
+            errors.append(f"文件 {filename}: 空文件")
             continue
 
         temp_path = os.path.join(config.OUTPUT_DIR, f"temp_{file_id}_{filename}")
@@ -406,7 +406,7 @@ def upload_files():
             with open(temp_path, "wb") as fp:
                 fp.write(image_bytes)
         except Exception as e:
-            errors.append(f"File {filename}: Save failed - {str(e)}")
+            errors.append(f"文件 {filename}: 保存失败 - {str(e)}")
             continue
 
         preview_b64 = _make_preview_base64(image_bytes, max_side=900, jpeg_quality=75)
@@ -579,7 +579,7 @@ def create_bill():
         if not data:
             return jsonify({
                 'success': False,
-                'error': 'No data provided'
+                'error': '未提供数据'
             }), 400
         
         # Validate required fields
@@ -588,17 +588,17 @@ def create_bill():
             if field not in data or data[field] in (None, ''):
                 return jsonify({
                     'success': False,
-                    'error': f'Missing required field: {field}'
+                    'error': f'缺少必填字段: {field}'
                 }), 400
         if not (data.get('category') or data.get('category_id')):
             return jsonify({
                 'success': False,
-                'error': 'Missing required field: category'
+                'error': '缺少必填字段: category'
             }), 400
         
         # Create new bill
         bill = EnhancedBill(
-            filename=data.get('filename', 'manual_entry'),
+            filename=data.get('filename', '手动录入'),
             merchant=str(data['merchant']).strip(),
             amount=float(data['amount']),
             category=str(data.get('category') or '').strip(),
@@ -614,7 +614,7 @@ def create_bill():
         if bill.amount < 0:
             return jsonify({
                 'success': False,
-                'error': 'Amount cannot be negative'
+                'error': '金额不能为负数'
             }), 400
         
         # Save to database
@@ -641,7 +641,7 @@ def create_bill():
     except ValueError as e:
         return jsonify({
             'success': False,
-            'error': f'Invalid data: {str(e)}'
+            'error': f'无效数据: {str(e)}'
         }), 400
     except Exception as e:
         return jsonify({
@@ -659,7 +659,7 @@ def update_bill(bill_id):
         if not data:
             return jsonify({
                 'success': False,
-                'error': 'No data provided'
+                'error': '未提供数据'
             }), 400
         
         # Get existing bill
@@ -667,7 +667,7 @@ def update_bill(bill_id):
         if not bill:
             return jsonify({
                 'success': False,
-                'error': 'Bill not found'
+                'error': '账单不存在'
             }), 404
         
         # Update fields
@@ -678,7 +678,7 @@ def update_bill(bill_id):
             if bill.amount < 0:
                 return jsonify({
                     'success': False,
-                    'error': 'Amount cannot be negative'
+                    'error': '金额不能为负数'
                 }), 400
         if 'category' in data:
             bill.category = str(data['category']).strip()
@@ -714,7 +714,7 @@ def update_bill(bill_id):
     except ValueError as e:
         return jsonify({
             'success': False,
-            'error': f'Invalid data: {str(e)}'
+            'error': f'无效数据: {str(e)}'
         }), 400
     except Exception as e:
         return jsonify({
@@ -733,12 +733,12 @@ def delete_bill(bill_id):
         if deleted:
             return jsonify({
                 'success': True,
-                'message': 'Bill deleted successfully'
+                'message': '账单删除成功'
             })
         else:
             return jsonify({
                 'success': False,
-                'error': 'Bill not found'
+                'error': '账单不存在'
             }), 404
             
     except Exception as e:
@@ -760,7 +760,7 @@ def batch_delete_bills():
         if not bill_ids:
             return jsonify({
                 'success': False,
-                'error': 'No bill IDs provided'
+                'error': '未提供账单ID'
             }), 400
             
         deleted_count = 0
@@ -770,7 +770,7 @@ def batch_delete_bills():
         
         return jsonify({
             'success': True,
-            'message': f'Successfully deleted {deleted_count} bills',
+            'message': f'成功删除 {deleted_count} 笔账单',
             'deleted_count': deleted_count
         })
         
@@ -794,7 +794,7 @@ def batch_update_budget():
         if not bill_ids:
             return jsonify({
                 'success': False,
-                'error': 'No bill IDs provided'
+                'error': '未提供账单ID'
             }), 400
             
         updated_count = 0
@@ -804,7 +804,7 @@ def batch_update_budget():
         
         return jsonify({
             'success': True,
-            'message': f'Successfully updated {updated_count} bills',
+            'message': f'成功更新 {updated_count} 笔账单',
             'updated_count': updated_count
         })
         
@@ -1205,7 +1205,7 @@ def create_category_group():
         if not data:
             return jsonify({
                 'success': False,
-                'error': 'No data provided'
+                'error': '未提供数据'
             }), 400
 
         major = str(data.get('major', '')).strip()
@@ -1213,7 +1213,7 @@ def create_category_group():
         if not major:
             return jsonify({
                 'success': False,
-                'error': 'Missing required field: major'
+                'error': '缺少必填字段: major'
             }), 400
 
         if enhanced_db.category_group_conflict(major, minor, ledger_id):
@@ -1257,14 +1257,14 @@ def update_category_group(category_id):
         if not data:
             return jsonify({
                 'success': False,
-                'error': 'No data provided'
+                'error': '未提供数据'
             }), 400
 
         existing = enhanced_db.get_category_group(category_id)
         if not existing:
             return jsonify({
                 'success': False,
-                'error': 'Category not found'
+                'error': '分类不存在'
             }), 404
 
         major = str(data.get('major', existing.major)).strip()
@@ -1272,7 +1272,7 @@ def update_category_group(category_id):
         if not major:
             return jsonify({
                 'success': False,
-                'error': 'Missing required field: major'
+                'error': '缺少必填字段: major'
             }), 400
 
         if 'ledger_id' in data:
@@ -1323,16 +1323,16 @@ def delete_category_group(category_id):
         if result['deleted']:
             return jsonify({
                 'success': True,
-                'message': 'Category deleted successfully'
+                'message': '分类删除成功'
             })
         if result['in_use'] > 0:
             return jsonify({
                 'success': False,
-                'error': f"Category is used by {result['in_use']} rule(s). Update rules first."
+                'error': f"分类被 {result['in_use']} 条规则使用。请先更新这些规则。"
             }), 400
         return jsonify({
             'success': False,
-            'error': 'Category not found'
+            'error': '分类不存在'
         }), 404
     except Exception as e:
         return jsonify({
@@ -1388,7 +1388,7 @@ def create_category_rule():
         if not data:
             return jsonify({
                 'success': False,
-                'error': 'No data provided'
+                'error': '未提供数据'
             }), 400
         
         # Validate required fields
@@ -1397,12 +1397,12 @@ def create_category_rule():
             if field not in data or not data[field]:
                 return jsonify({
                     'success': False,
-                    'error': f'Missing required field: {field}'
+                    'error': f'缺少必填字段: {field}'
                 }), 400
         if not (data.get('category') or data.get('category_id')):
             return jsonify({
                 'success': False,
-                'error': 'Missing required field: category'
+                'error': '缺少必填字段: category'
             }), 400
         
         # Create new rule
@@ -1416,7 +1416,7 @@ def create_category_rule():
 
         # category resolution happens in storage; still ensure provided data is not empty
         if not rule.category and not rule.category_id:
-            return jsonify({'success': False, 'error': 'Category is required'}), 400
+            return jsonify({'success': False, 'error': '必须指定分类'}), 400
         
         category_name = rule.category
         if rule.category_id:
@@ -1450,7 +1450,7 @@ def create_category_rule():
     except ValueError as e:
         return jsonify({
             'success': False,
-            'error': f'Invalid data: {str(e)}'
+            'error': f'无效数据: {str(e)}'
         }), 400
     except Exception as e:
         return jsonify({
@@ -1468,7 +1468,7 @@ def update_category_rule(rule_id):
         if not data:
             return jsonify({
                 'success': False,
-                'error': 'No data provided'
+                'error': '未提供数据'
             }), 400
         
         # Get existing rule
@@ -1482,7 +1482,7 @@ def update_category_rule(rule_id):
         if not rule:
             return jsonify({
                 'success': False,
-                'error': 'Rule not found'
+                'error': '规则不存在'
             }), 404
         
         # Update fields
@@ -1531,7 +1531,7 @@ def update_category_rule(rule_id):
     except ValueError as e:
         return jsonify({
             'success': False,
-            'error': f'Invalid data: {str(e)}'
+            'error': f'无效数据: {str(e)}'
         }), 400
     except Exception as e:
         return jsonify({
@@ -1550,12 +1550,12 @@ def delete_category_rule(rule_id):
         if deleted:
             return jsonify({
                 'success': True,
-                'message': 'Category rule deleted successfully'
+                'message': '分类规则删除成功'
             })
         else:
             return jsonify({
                 'success': False,
-                'error': 'Rule not found'
+                'error': '规则不存在'
             }), 404
             
     except Exception as e:
@@ -1568,7 +1568,7 @@ def delete_category_rule(rule_id):
 
 def _parse_schedule_values(schedule_type, raw_value):
     if raw_value is None:
-        raise ValueError('Missing required field: schedule_value')
+        raise ValueError('缺少必填字段: schedule_value')
     if isinstance(raw_value, list):
         values = [int(v) for v in raw_value]
     elif isinstance(raw_value, str):
@@ -1585,7 +1585,7 @@ def _parse_schedule_values(schedule_type, raw_value):
     limit = 7 if schedule_type == 'weekly' else 31
     filtered = sorted({v for v in values if 1 <= int(v) <= limit})
     if not filtered:
-        raise ValueError('Invalid schedule_value')
+        raise ValueError('无效的 schedule_value')
     return filtered
 
 @app.route('/api/recurring-rules', methods=['GET'])
@@ -1630,7 +1630,7 @@ def create_recurring_rule():
         init_processors()
         data = request.get_json()
         if not data:
-            return jsonify({'success': False, 'error': 'No data provided'}), 400
+            return jsonify({'success': False, 'error': '未提供数据'}), 400
 
         ledger_raw = data.get('ledger_id')
         ledger_id = None if ledger_raw in (None, '', 'null') else int(ledger_raw) if ledger_raw is not None else get_ledger_id_from_request()
@@ -1639,15 +1639,15 @@ def create_recurring_rule():
         schedule_value = data.get('schedule_value')
         start_date = str(data.get('start_date', '')).strip()
         if not (data.get('category') or data.get('category_id')):
-            return jsonify({'success': False, 'error': 'Missing required field: category'}), 400
+            return jsonify({'success': False, 'error': '缺少必填字段: category'}), 400
         if schedule_type not in ('weekly', 'monthly'):
-            return jsonify({'success': False, 'error': 'Invalid schedule_type'}), 400
+            return jsonify({'success': False, 'error': '无效的 schedule_type'}), 400
         try:
             schedule_values = _parse_schedule_values(schedule_type, schedule_value)
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
         if not start_date:
-            return jsonify({'success': False, 'error': 'Missing required field: start_date'}), 400
+            return jsonify({'success': False, 'error': '缺少必填字段: start_date'}), 400
 
         rule = RecurringRule(
             ledger_id=ledger_id,
@@ -1687,7 +1687,7 @@ def create_recurring_rule():
             }
         })
     except ValueError as e:
-        return jsonify({'success': False, 'error': f'Invalid data: {str(e)}'}), 400
+        return jsonify({'success': False, 'error': f'无效数据: {str(e)}'}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1699,11 +1699,11 @@ def update_recurring_rule(rule_id):
         init_processors()
         data = request.get_json()
         if not data:
-            return jsonify({'success': False, 'error': 'No data provided'}), 400
+            return jsonify({'success': False, 'error': '未提供数据'}), 400
 
         rule = enhanced_db.get_recurring_rule(rule_id)
         if not rule:
-            return jsonify({'success': False, 'error': 'Rule not found'}), 404
+            return jsonify({'success': False, 'error': '规则不存在'}), 404
 
         if 'amount' in data:
             rule.amount = float(data.get('amount') or 0)
@@ -1735,9 +1735,9 @@ def update_recurring_rule(rule_id):
         except ValueError as e:
             return jsonify({'success': False, 'error': str(e)}), 400
         if not rule.start_date:
-            return jsonify({'success': False, 'error': 'Missing required field: start_date'}), 400
+            return jsonify({'success': False, 'error': '缺少必填字段: start_date'}), 400
         if not (rule.category or rule.category_id):
-            return jsonify({'success': False, 'error': 'Missing required field: category'}), 400
+            return jsonify({'success': False, 'error': '缺少必填字段: category'}), 400
 
         enhanced_db.save_recurring_rule(rule)
         return jsonify({
@@ -1761,7 +1761,7 @@ def update_recurring_rule(rule_id):
             }
         })
     except ValueError as e:
-        return jsonify({'success': False, 'error': f'Invalid data: {str(e)}'}), 400
+        return jsonify({'success': False, 'error': f'无效数据: {str(e)}'}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1773,8 +1773,8 @@ def delete_recurring_rule(rule_id):
         init_processors()
         deleted = enhanced_db.delete_recurring_rule(rule_id)
         if deleted:
-            return jsonify({'success': True, 'message': 'Recurring rule deleted successfully'})
-        return jsonify({'success': False, 'error': 'Rule not found'}), 404
+            return jsonify({'success': True, 'message': '周期性规则删除成功'})
+        return jsonify({'success': False, 'error': '规则不存在'}), 404
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -1975,7 +1975,7 @@ def too_large(e):
     """Handle file too large error"""
     return jsonify({
         'success': False,
-        'error': 'File too large. Maximum size is 16MB.'
+        'error': '文件过大。最大允许 16MB。'
     }), 413
 
 @app.errorhandler(404)
@@ -1983,7 +1983,7 @@ def not_found(e):
     """Handle 404 errors"""
     return jsonify({
         'success': False,
-        'error': 'Endpoint not found'
+        'error': '接口不存在'
     }), 404
 
 @app.errorhandler(500)
@@ -1991,7 +1991,7 @@ def internal_error(e):
     """Handle internal server errors"""
     return jsonify({
         'success': False,
-        'error': 'Internal server error'
+        'error': '服务器内部错误'
     }), 500
 
 if __name__ == '__main__':
@@ -1999,6 +1999,6 @@ if __name__ == '__main__':
     if not os.path.exists('static'):
         os.makedirs('static')
     
-    print("🚀 启动 SnapLedger Web 应用...")
+    print("🚀 启动 账单助手 Web 应用...")
     print("📱 访问地址: http://localhost:5000")
     app.run(debug=False, host='127.0.0.1', port=5000, use_reloader=False)

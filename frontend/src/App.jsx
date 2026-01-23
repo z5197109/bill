@@ -38,6 +38,7 @@ import Dashboard from './Dashboard'
 import { TemplateWizardModal } from './components'
 import './App.css'
 import './Dashboard.css'
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -222,8 +223,11 @@ const normalizeSortOrder = (order) => {
 
 const fileKey = (file) => `${file.name}|${file.size}|${file.lastModified}`
 
+const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658', '#8dd1e1', '#a4de6c', '#d0ed57']
+
 function App() {
   const [tab, setTab] = useState('dashboard')
+  const [pieChartOpen, setPieChartOpen] = useState(false)
   const [ledgers, setLedgers] = useState([])
   const [currentLedgerId, setCurrentLedgerId] = useState(null)
   const [ledgerForm, setLedgerForm] = useState({ name: '', monthly_budget: '' })
@@ -249,6 +253,13 @@ function App() {
     end_date: today(),
   })
   const [analyticsSummary, setAnalyticsSummary] = useState(null)
+
+  const getPieChartData = () => {
+    if (!analyticsSummary || !analyticsSummary.categories) return []
+    return Object.entries(analyticsSummary.categories)
+      .map(([name, data]) => ({ name, value: data.amount }))
+      .sort((a, b) => b.value - a.value)
+  }
   const [analyticsItems, setAnalyticsItems] = useState([])
   const [analyticsTotal, setAnalyticsTotal] = useState(0)
   const [analyticsPage, setAnalyticsPage] = useState(1)
@@ -2349,849 +2360,563 @@ function App() {
     >
       <Layout
         className="app"
-      style={{
-        background: `
+        style={{
+          background: `
           radial-gradient(circle at 10% 20%, rgba(79, 70, 229, 0.08), transparent 25%),
           radial-gradient(circle at 80% 0%, rgba(14, 165, 233, 0.08), transparent 25%),
           #f3f4f6
         `,
-        padding: '5%',
-      }}
-    >
-      {contextHolder}
-      <Layout.Content>
-        <div className="app-header">
-          <Space direction="vertical" size={2}>
-            <Title level={3}>{t('appTitle')}</Title>
-            <Text className="muted">{t('appSubtitle')}</Text>
-          </Space>
-          <Space size="middle" align="center">
-            <Text strong>{t('ledger.label')}</Text>
-            <Select value={currentLedgerId ?? undefined} style={{ minWidth: 200 }} onChange={setCurrentLedgerId}>
-              {ledgers.map((l) => (
-                <Select.Option key={l.id} value={l.id}>
-                  {l.name} ({t('ledger.budget')}: {l.monthly_budget ?? 0})
-                </Select.Option>
-              ))}
-            </Select>
-            <Button icon={<ReloadOutlined />} onClick={loadLedgers}>
-              {t('ledger.reload')}
-            </Button>
-          </Space>
-        </div>
+          padding: '5%',
+        }}
+      >
+        {contextHolder}
+        <Layout.Content>
+          <div className="app-header">
+            <Space direction="vertical" size={2}>
+              <Title level={3}>{t('appTitle')}</Title>
+              <Text className="muted">{t('appSubtitle')}</Text>
+            </Space>
+            <Space size="middle" align="center">
+              <Text strong>{t('ledger.label')}</Text>
+              <Select value={currentLedgerId ?? undefined} style={{ minWidth: 200 }} onChange={setCurrentLedgerId}>
+                {ledgers.map((l) => (
+                  <Select.Option key={l.id} value={l.id}>
+                    {l.name} ({t('ledger.budget')}: {l.monthly_budget ?? 0})
+                  </Select.Option>
+                ))}
+              </Select>
+              <Button icon={<ReloadOutlined />} onClick={loadLedgers}>
+                {t('ledger.reload')}
+              </Button>
+            </Space>
+          </div>
 
-        <Tabs activeKey={tab} onChange={setTab}>
-          <Tabs.TabPane tab={t('tabs.0')} key="dashboard">
-            <Dashboard
-              currentLedgerId={currentLedgerId}
-              onAddBill={() => setTab('upload')}
-              refreshTrigger={dashboardRefreshTrigger}
-            />
-          </Tabs.TabPane>
+          <Tabs activeKey={tab} onChange={setTab}>
+            <Tabs.TabPane tab={t('tabs.0')} key="dashboard">
+              <Dashboard
+                currentLedgerId={currentLedgerId}
+                onAddBill={() => setTab('upload')}
+                refreshTrigger={dashboardRefreshTrigger}
+              />
+            </Tabs.TabPane>
 
-          <Tabs.TabPane tab={t('tabs.1')} key="upload">
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
-
-
+            <Tabs.TabPane tab={t('tabs.1')} key="upload">
               <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                <Card title={t('upload.title')}>
-                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                    <Upload.Dragger
-                      multiple
-                      beforeUpload={() => false}
-                      fileList={uploadFileList}
-                      onChange={({ fileList }) =>
-                        handleFileInput(fileList.map((file) => file.originFileObj).filter(Boolean))
-                      }
-                      onRemove={(file) => {
-                        setSelectedFiles((prev) => prev.filter((f) => fileKey(f) !== file.uid))
-                      }}
-                    >
-                      <p className="ant-upload-drag-icon">
-                        <InboxOutlined />
-                      </p>
-                      <p className="ant-upload-text">{t('upload.drop')}</p>
-                      <p className="ant-upload-hint">{t('upload.choose')}</p>
-                    </Upload.Dragger>
 
-                    <Space size="middle" align="center" wrap>
-                      <Button type="primary" icon={<UploadOutlined />} onClick={processFiles} loading={uploading}>
-                        {t('upload.run')}
-                      </Button>
-                      <Button onClick={addManualRow}>{t('upload.addManual')}</Button>
-                      <Text>{t('upload.billDate')}</Text>
-                      <DatePicker
-                        value={uploadDate ? dayjs(uploadDate, 'YYYY-MM-DD') : null}
-                        onChange={(date) => setUploadDate(date ? date.format('YYYY-MM-DD') : today())}
-                      />
+
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                  <Card title={t('upload.title')}>
+                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                      <Upload.Dragger
+                        multiple
+                        beforeUpload={() => false}
+                        fileList={uploadFileList}
+                        onChange={({ fileList }) =>
+                          handleFileInput(fileList.map((file) => file.originFileObj).filter(Boolean))
+                        }
+                        onRemove={(file) => {
+                          setSelectedFiles((prev) => prev.filter((f) => fileKey(f) !== file.uid))
+                        }}
+                      >
+                        <p className="ant-upload-drag-icon">
+                          <InboxOutlined />
+                        </p>
+                        <p className="ant-upload-text">{t('upload.drop')}</p>
+                        <p className="ant-upload-hint">{t('upload.choose')}</p>
+                      </Upload.Dragger>
+
+                      <Space size="middle" align="center" wrap>
+                        <Button type="primary" icon={<UploadOutlined />} onClick={processFiles} loading={uploading}>
+                          {t('upload.run')}
+                        </Button>
+                        <Button onClick={addManualRow}>{t('upload.addManual')}</Button>
+                        <Text>{t('upload.billDate')}</Text>
+                        <DatePicker
+                          value={uploadDate ? dayjs(uploadDate, 'YYYY-MM-DD') : null}
+                          onChange={(date) => setUploadDate(date ? date.format('YYYY-MM-DD') : today())}
+                        />
+                      </Space>
                     </Space>
-                  </Space>
+                  </Card>
+
+                  <Card
+                    title={t('upload.results')}
+                    extra={
+                      <Space>
+                        <Button
+                          type="primary"
+                          icon={<SaveOutlined />}
+                          onClick={saveResults}
+                          loading={saving}
+                          disabled={!results.length}
+                        >
+                          {t('upload.saveAll')}
+                        </Button>
+                        <Button danger icon={<DeleteOutlined />} onClick={bulkDelete}>
+                          {t('upload.deleteSelected')}
+                        </Button>
+                      </Space>
+                    }
+                  >
+                    <Table
+                      rowKey="clientId"
+                      columns={resultColumns}
+                      dataSource={results}
+                      pagination={false}
+                      size="small"
+                      rowSelection={{
+                        selectedRowKeys: selectedResultKeys,
+                        onChange: (keys) =>
+                          setResults((prev) => prev.map((r) => ({ ...r, selected: keys.includes(r.clientId) }))),
+                      }}
+                      onRow={(record) => ({
+                        onClick: () => toggleResult(record.clientId, !record.selected),
+                      })}
+                      rowClassName={(record) => (record.selected ? 'row-selected' : '')}
+                      scroll={{ x: 900 }}
+                    />
+                  </Card>
+                </Space>
+              </Space>
+            </Tabs.TabPane>
+
+            <Tabs.TabPane tab={t('tabs.2')} key="analytics">
+              <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Card title={t('analytics.title')}>
+                  <Row gutter={12} align="middle">
+                    <Col xs={24} md={6}>
+                      <Input
+                        placeholder={t('analytics.keywordPH')}
+                        value={analyticsFilters.keyword}
+                        onChange={(e) => setAnalyticsFilters({ ...analyticsFilters, keyword: e.target.value })}
+                      />
+                    </Col>
+                    <Col xs={24} md={4}>
+                      <Select
+                        placeholder={t('analytics.allMajors')}
+                        value={analyticsFilters.major || undefined}
+                        allowClear
+                        onChange={(value) => setAnalyticsFilters({ ...analyticsFilters, major: value || '', minor: '' })}
+                        style={{ width: '100%' }}
+                      >
+                        {majorOptions.map((m) => (
+                          <Select.Option key={m} value={m}>
+                            {m}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Col>
+                    <Col xs={24} md={4}>
+                      <Select
+                        placeholder={t('analytics.allMinors')}
+                        value={analyticsFilters.minor || undefined}
+                        allowClear
+                        onChange={(value) => setAnalyticsFilters({ ...analyticsFilters, minor: value || '' })}
+                        style={{ width: '100%' }}
+                      >
+                        {minorOptions.map((c) => (
+                          <Select.Option key={c.id} value={c.minor}>
+                            {c.minor || c.full_name}
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Col>
+                    <Col xs={24} md={8}>
+                      <RangePicker
+                        value={
+                          analyticsFilters.start_date && analyticsFilters.end_date
+                            ? [dayjs(analyticsFilters.start_date, 'YYYY-MM-DD'), dayjs(analyticsFilters.end_date, 'YYYY-MM-DD')]
+                            : []
+                        }
+                        onCalendarChange={(dates) => {
+                          if (!dates) return
+                          const [start, end] = dates
+                          setAnalyticsFilters((prev) => ({
+                            ...prev,
+                            start_date: start ? start.format('YYYY-MM-DD') : prev.start_date,
+                            end_date: end ? end.format('YYYY-MM-DD') : prev.end_date,
+                          }))
+                        }}
+                        onChange={(dates) => {
+                          if (!dates || !dates[0] || !dates[1]) return
+                          const [start, end] = dates
+                          const nextFilters = {
+                            ...analyticsFilters,
+                            start_date: start.format('YYYY-MM-DD'),
+                            end_date: end.format('YYYY-MM-DD'),
+                          }
+                          setAnalyticsFilters(nextFilters)
+                          setAnalyticsPage(1)
+                          refreshAnalytics(1, nextFilters)
+                        }}
+                        style={{ width: '100%' }}
+                      />
+                    </Col>
+                  </Row>
+
+                  <Row gutter={12} align="middle" style={{ marginTop: 10 }}>
+                    <Col flex="auto">
+                      <Space wrap>
+                        <Button type="primary" onClick={() => refreshAnalytics(1)}>
+                          {t('analytics.refresh')}
+                        </Button>
+                        <Button onClick={() => quickRange('today')}>{t('analytics.rangeToday')}</Button>
+                        <Button onClick={() => quickRange('week')}>{t('analytics.rangeWeek')}</Button>
+                        <Button onClick={() => quickRange('month')}>{t('analytics.rangeMonth')}</Button>
+                        <Button onClick={() => quickRange('year')}>{t('analytics.rangeYear')}</Button>
+                        <Button onClick={resetAnalyticsFilters}>{t('analytics.reset')}</Button>
+                      </Space>
+                    </Col>
+                  </Row>
+
+                  {analyticsSummary && (
+                    <>
+                      <Divider />
+                      <Row gutter={12}>
+                        <Col xs={12} md={6}>
+                          <Card
+                            size="small"
+                            hoverable
+                            onClick={() => setPieChartOpen(true)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <Statistic
+                              title={t('analytics.totalAmount')}
+                              value={numberOrZero(analyticsSummary.total_amount)}
+                              prefix={currency}
+                              precision={2}
+                            />
+                          </Card>
+                        </Col>
+                        <Col xs={12} md={6}>
+                          <Card size="small">
+                            <Statistic title={t('analytics.count')} value={analyticsSummary.bill_count} />
+                          </Card>
+                        </Col>
+                        <Col xs={12} md={6}>
+                          <Card size="small">
+                            <Statistic title={t('analytics.daysCovered')} value={analyticsSummary.day_count} />
+                          </Card>
+                        </Col>
+                        <Col xs={12} md={6}>
+                          <Card size="small">
+                            <Statistic
+                              title={t('analytics.dailyAvg')}
+                              value={numberOrZero(analyticsSummary.daily_avg)}
+                              prefix={currency}
+                              precision={2}
+                            />
+                          </Card>
+                        </Col>
+                      </Row>
+                    </>
+                  )}
                 </Card>
 
-                <Card
-                  title={t('upload.results')}
-                  extra={
-                    <Space>
-                      <Button
-                        type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={saveResults}
-                        loading={saving}
-                        disabled={!results.length}
-                      >
-                        {t('upload.saveAll')}
-                      </Button>
-                      <Button danger icon={<DeleteOutlined />} onClick={bulkDelete}>
-                        {t('upload.deleteSelected')}
-                      </Button>
-                    </Space>
-                  }
-                >
+                <Card>
+                  {selectedRowKeys.length > 0 && (
+                    <div style={{ marginBottom: 16, padding: '8px 16px', backgroundColor: '#f0f2f5', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text>已选择 {selectedRowKeys.length} 项</Text>
+                      <Space>
+                        <Button
+                          size="small"
+                          onClick={() => setSelectedRowKeys([])}
+                        >
+                          取消选择
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => batchToggleBudget(false)}
+                        >
+                          不计入预算
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => batchToggleBudget(true)}
+                        >
+                          计入预算
+                        </Button>
+                        <Button
+                          danger
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          onClick={batchDeleteBills}
+                        >
+                          删除
+                        </Button>
+                      </Space>
+                    </div>
+                  )}
                   <Table
-                    rowKey="clientId"
-                    columns={resultColumns}
-                    dataSource={results}
-                    pagination={false}
-                    size="small"
+                    rowKey="id"
+                    columns={analyticsColumns}
+                    dataSource={analyticsItems}
                     rowSelection={{
-                      selectedRowKeys: selectedResultKeys,
-                      onChange: (keys) =>
-                        setResults((prev) => prev.map((r) => ({ ...r, selected: keys.includes(r.clientId) }))),
+                      selectedRowKeys,
+                      onChange: setSelectedRowKeys,
+                      preserveSelectedRowKeys: true,
                     }}
                     onRow={(record) => ({
-                      onClick: () => toggleResult(record.clientId, !record.selected),
-                    })}
-                    rowClassName={(record) => (record.selected ? 'row-selected' : '')}
-                    scroll={{ x: 900 }}
-                  />
-                </Card>
-              </Space>
-            </Space>
-          </Tabs.TabPane>
-
-          <Tabs.TabPane tab={t('tabs.2')} key="analytics">
-            <Space direction="vertical" size="large" style={{ width: '100%' }}>
-              <Card title={t('analytics.title')}>
-                <Row gutter={12} align="middle">
-                  <Col xs={24} md={6}>
-                    <Input
-                      placeholder={t('analytics.keywordPH')}
-                      value={analyticsFilters.keyword}
-                      onChange={(e) => setAnalyticsFilters({ ...analyticsFilters, keyword: e.target.value })}
-                    />
-                  </Col>
-                  <Col xs={24} md={4}>
-                    <Select
-                      placeholder={t('analytics.allMajors')}
-                      value={analyticsFilters.major || undefined}
-                      allowClear
-                      onChange={(value) => setAnalyticsFilters({ ...analyticsFilters, major: value || '', minor: '' })}
-                      style={{ width: '100%' }}
-                    >
-                      {majorOptions.map((m) => (
-                        <Select.Option key={m} value={m}>
-                          {m}
-                        </Select.Option>
-                      ))}
-                    </Select>
-                  </Col>
-                  <Col xs={24} md={4}>
-                    <Select
-                      placeholder={t('analytics.allMinors')}
-                      value={analyticsFilters.minor || undefined}
-                      allowClear
-                      onChange={(value) => setAnalyticsFilters({ ...analyticsFilters, minor: value || '' })}
-                      style={{ width: '100%' }}
-                    >
-                      {minorOptions.map((c) => (
-                        <Select.Option key={c.id} value={c.minor}>
-                          {c.minor || c.full_name}
-                        </Select.Option>
-                      ))}
-                    </Select>
-                  </Col>
-                  <Col xs={24} md={8}>
-                    <RangePicker
-                      value={
-                        analyticsFilters.start_date && analyticsFilters.end_date
-                          ? [dayjs(analyticsFilters.start_date, 'YYYY-MM-DD'), dayjs(analyticsFilters.end_date, 'YYYY-MM-DD')]
-                          : []
-                      }
-                      onCalendarChange={(dates) => {
-                        if (!dates) return
-                        const [start, end] = dates
-                        setAnalyticsFilters((prev) => ({
-                          ...prev,
-                          start_date: start ? start.format('YYYY-MM-DD') : prev.start_date,
-                          end_date: end ? end.format('YYYY-MM-DD') : prev.end_date,
-                        }))
-                      }}
-                      onChange={(dates) => {
-                        if (!dates || !dates[0] || !dates[1]) return
-                        const [start, end] = dates
-                        const nextFilters = {
-                          ...analyticsFilters,
-                          start_date: start.format('YYYY-MM-DD'),
-                          end_date: end.format('YYYY-MM-DD'),
+                      onClick: (event) => {
+                        // 如果点击的是checkbox，不触发编辑
+                        if (event.target.closest('.ant-checkbox-wrapper')) {
+                          return
                         }
-                        setAnalyticsFilters(nextFilters)
-                        setAnalyticsPage(1)
-                        refreshAnalytics(1, nextFilters)
-                      }}
-                      style={{ width: '100%' }}
-                    />
-                  </Col>
-                </Row>
-
-                <Row gutter={12} align="middle" style={{ marginTop: 10 }}>
-                  <Col flex="auto">
-                    <Space wrap>
-                      <Button type="primary" onClick={() => refreshAnalytics(1)}>
-                        {t('analytics.refresh')}
-                      </Button>
-                      <Button onClick={() => quickRange('today')}>{t('analytics.rangeToday')}</Button>
-                      <Button onClick={() => quickRange('week')}>{t('analytics.rangeWeek')}</Button>
-                      <Button onClick={() => quickRange('month')}>{t('analytics.rangeMonth')}</Button>
-                      <Button onClick={() => quickRange('year')}>{t('analytics.rangeYear')}</Button>
-                      <Button onClick={resetAnalyticsFilters}>{t('analytics.reset')}</Button>
-                    </Space>
-                  </Col>
-                </Row>
-
-                {analyticsSummary && (
-                  <>
-                    <Divider />
-                    <Row gutter={12}>
-                      <Col xs={12} md={6}>
-                        <Card size="small">
-                          <Statistic
-                            title={t('analytics.totalAmount')}
-                            value={numberOrZero(analyticsSummary.total_amount)}
-                            prefix={currency}
-                            precision={2}
-                          />
-                        </Card>
-                      </Col>
-                      <Col xs={12} md={6}>
-                        <Card size="small">
-                          <Statistic title={t('analytics.count')} value={analyticsSummary.bill_count} />
-                        </Card>
-                      </Col>
-                      <Col xs={12} md={6}>
-                        <Card size="small">
-                          <Statistic title={t('analytics.daysCovered')} value={analyticsSummary.day_count} />
-                        </Card>
-                      </Col>
-                      <Col xs={12} md={6}>
-                        <Card size="small">
-                          <Statistic
-                            title={t('analytics.dailyAvg')}
-                            value={numberOrZero(analyticsSummary.daily_avg)}
-                            prefix={currency}
-                            precision={2}
-                          />
-                        </Card>
-                      </Col>
-                    </Row>
-                  </>
-                )}
-              </Card>
-
-              <Card>
-                {selectedRowKeys.length > 0 && (
-                  <div style={{ marginBottom: 16, padding: '8px 16px', backgroundColor: '#f0f2f5', borderRadius: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Text>已选择 {selectedRowKeys.length} 项</Text>
-                    <Space>
-                      <Button
-                        size="small"
-                        onClick={() => setSelectedRowKeys([])}
-                      >
-                        取消选择
-                      </Button>
-                      <Button
-                        size="small"
-                        onClick={() => batchToggleBudget(false)}
-                      >
-                        不计入预算
-                      </Button>
-                      <Button
-                        size="small"
-                        onClick={() => batchToggleBudget(true)}
-                      >
-                        计入预算
-                      </Button>
-                      <Button
-                        danger
-                        size="small"
-                        icon={<DeleteOutlined />}
-                        onClick={batchDeleteBills}
-                      >
-                        删除
-                      </Button>
-                    </Space>
-                  </div>
-                )}
-                <Table
-                  rowKey="id"
-                  columns={analyticsColumns}
-                  dataSource={analyticsItems}
-                  rowSelection={{
-                    selectedRowKeys,
-                    onChange: setSelectedRowKeys,
-                    preserveSelectedRowKeys: true,
-                  }}
-                  onRow={(record) => ({
-                    onClick: (event) => {
-                      // 如果点击的是checkbox，不触发编辑
-                      if (event.target.closest('.ant-checkbox-wrapper')) {
+                        openBillEdit(record)
+                      },
+                    })}
+                    onChange={(pagination, filters, sorter, extra) => {
+                      const nextPage = pagination?.current || 1
+                      if (extra?.action === 'sort') {
+                        const sortInfo = Array.isArray(sorter) ? sorter[0] : sorter
+                        const nextSort = sortInfo?.order
+                          ? {
+                            field: sortInfo?.field || '',
+                            order: sortInfo?.order || '',
+                          }
+                          : { field: '', order: '' }
+                        setAnalyticsSort(nextSort)
+                        refreshAnalytics(nextPage, null, nextSort)
                         return
                       }
-                      openBillEdit(record)
-                    },
-                  })}
-                  onChange={(pagination, filters, sorter, extra) => {
-                    const nextPage = pagination?.current || 1
-                    if (extra?.action === 'sort') {
-                      const sortInfo = Array.isArray(sorter) ? sorter[0] : sorter
-                      const nextSort = sortInfo?.order
-                        ? {
-                          field: sortInfo?.field || '',
-                          order: sortInfo?.order || '',
-                        }
-                        : { field: '', order: '' }
-                      setAnalyticsSort(nextSort)
-                      refreshAnalytics(nextPage, null, nextSort)
-                      return
-                    }
-                    refreshAnalytics(nextPage)
-                  }}
-                  pagination={{
-                    current: analyticsPage,
-                    pageSize,
-                    total: analyticsTotal,
-                    showSizeChanger: false,
-                  }}
-                  size="middle"
-                  scroll={{ x: 800 }}
-                />
-              </Card>
+                      refreshAnalytics(nextPage)
+                    }}
+                    pagination={{
+                      current: analyticsPage,
+                      pageSize,
+                      total: analyticsTotal,
+                      showSizeChanger: false,
+                    }}
+                    size="middle"
+                    scroll={{ x: 800 }}
+                  />
+                </Card>
 
-              <Modal
-                title="编辑账单"
-                open={billEditOpen}
-                onCancel={() => setBillEditOpen(false)}
-                onOk={saveBillEdit}
-                okText={t('ledger.save')}
-                cancelText="取消"
-                style={{ top: '20%' }}
-                width={700}
-              >
-                <Form layout="vertical">
-                  <Row gutter={12}>
-                    <Col xs={24} md={12}>
-                      <Form.Item label={t('upload.headers')[1]}>
-                        <Input
-                          value={billEditForm.merchant}
-                          onChange={(e) => setBillEditForm({ ...billEditForm, merchant: e.target.value })}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={12}>
-                      <Form.Item label={t('upload.headers')[2]}>
-                        <InputNumber
-                          min={0}
-                          value={billEditForm.amount}
-                          onChange={(value) => setBillEditForm({ ...billEditForm, amount: value })}
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                  <Row gutter={12}>
-                    <Col xs={24} md={8}>
-                      <Form.Item label={t('config.major')}>
-                        <Select
-                          value={billEditForm.major || undefined}
-                          placeholder={t('config.major')}
-                          onChange={handleBillEditMajorChange}
-                          allowClear
+                <Modal
+                  title="消费类别占比"
+                  open={pieChartOpen}
+                  onCancel={() => setPieChartOpen(false)}
+                  footer={null}
+                  width={800}
+                >
+                  <div style={{ width: '100%', height: 400 }}>
+                    <ResponsiveContainer>
+                      <PieChart>
+                        <Pie
+                          data={getPieChartData()}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                          outerRadius={150}
+                          fill="#8884d8"
+                          dataKey="value"
                         >
-                          {majorOptions.map((m) => (
-                            <Select.Option key={`bill-edit-major-${m}`} value={m}>
-                              {m}
-                            </Select.Option>
+                          {getPieChartData().map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                           ))}
-                        </Select>
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label={t('config.minor')}>
-                        <Select
-                          value={billEditForm.category_id ?? undefined}
-                          placeholder={t('config.minor')}
-                          onChange={handleBillEditMinorChange}
-                          disabled={!billEditForm.major}
-                          allowClear
-                        >
-                          {billEditMinorOptions.map((c) => (
-                            <Select.Option key={`bill-edit-minor-${c.id}`} value={c.id}>
-                              {c.minor || c.full_name}
-                            </Select.Option>
-                          ))}
-                        </Select>
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label={t('upload.headers')[4]}>
-                        <DatePicker
-                          value={billEditForm.bill_date ? dayjs(billEditForm.bill_date, 'YYYY-MM-DD') : null}
-                          onChange={(date) =>
-                            setBillEditForm({
-                              ...billEditForm,
-                              bill_date: date ? date.format('YYYY-MM-DD') : '',
-                            })
-                          }
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                  <Form.Item label={t('analytics.includeInBudget')}>
-                    <Switch
-                      checked={billEditForm.include_in_budget}
-                      onChange={(checked) => setBillEditForm({ ...billEditForm, include_in_budget: checked })}
-                    />
-                  </Form.Item>
-                </Form>
-              </Modal>
-            </Space>
-          </Tabs.TabPane>
+                        </Pie>
+                        <RechartsTooltip formatter={(value) => `${currency}${Number(value).toFixed(2)}`} />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </Modal>
 
-          <Tabs.TabPane tab={t('tabs.3')} key="config">
-            <Tabs defaultActiveKey="ledger">
-              <Tabs.TabPane tab={t('settings.ledger')} key="ledger">
-                <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                  <Row gutter={[16, 16]}>
-                    <Col span={24}>
-                      <Card title="当前账本">
-                        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                          <Form layout="vertical">
-                            <Row gutter={12}>
-                              <Col xs={24} md={12}>
-                                <Form.Item label={t('ledger.name')}>
-                                  <Input
-                                    value={ledgerForm.name}
-                                    onChange={(e) => setLedgerForm({ ...ledgerForm, name: e.target.value })}
-                                  />
-                                </Form.Item>
-                              </Col>
-                              <Col xs={24} md={12}>
-                                <Form.Item label={t('ledger.budget')}>
-                                  <InputNumber
-                                    min={0}
-                                    value={ledgerForm.monthly_budget}
-                                    onChange={(value) => setLedgerForm({ ...ledgerForm, monthly_budget: value })}
-                                    style={{ width: '100%' }}
-                                  />
-                                </Form.Item>
-                              </Col>
-                            </Row>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-                              <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
-                                {t('ledger.save')}
-                              </Button>
-                            </div>
-                          </Form>
-
-                          <Divider style={{ borderTop: '2px solid #bfbfbf', margin: '20px 0' }} />
-
-                          <Row justify="space-between" align="middle">
-                            <Col>
-                              <Text strong>账单识别管理</Text>
-                            </Col>
-                            <Col>
-                              <Space>
-                                <Button type="primary" onClick={() => setTemplateWizardOpen(true)}>
-                                  新增
-                                </Button>
-                                <Button
-                                  onClick={() => {
-                                    setTemplateManageOpen(true)
-                                    loadTemplates()
-                                  }}
-                                >
-                                  查看修改
-                                </Button>
-                              </Space>
-                            </Col>
-                          </Row>
-
-                          <Divider style={{ borderTop: '2px solid #bfbfbf', margin: '20px 0' }} />
-
-                          <Row justify="space-between" align="middle">
-                            <Col>
-                              <Text strong>{t('recurring.title')}</Text>
-                            </Col>
-                            <Col>
-                              <Space>
-                                <Button type="primary" onClick={() => setRecurringCreateOpen(true)}>
-                                  {t('recurring.createButton')}
-                                </Button>
-                                <Button
-                                  onClick={() => {
-                                    setRecurringManageOpen(true)
-                                    loadRecurringRules()
-                                  }}
-                                >
-                                  {t('recurring.manageButton')}
-                                </Button>
-                              </Space>
-                            </Col>
-                          </Row>
-
-                          <Modal
-                            title={t('recurring.createTitle')}
-                            open={recurringCreateOpen}
-                            onCancel={() => setRecurringCreateOpen(false)}
-                            onOk={async () => {
-                              const ok = await addRecurringRule()
-                              if (ok) setRecurringCreateOpen(false)
-                            }}
-                            okText={t('ledger.save')}
-                            cancelText="取消"
-                            style={{ top: '20%' }}
-                            width={900}
+                <Modal
+                  title="编辑账单"
+                  open={billEditOpen}
+                  onCancel={() => setBillEditOpen(false)}
+                  onOk={saveBillEdit}
+                  okText={t('ledger.save')}
+                  cancelText="取消"
+                  style={{ top: '20%' }}
+                  width={700}
+                >
+                  <Form layout="vertical">
+                    <Row gutter={12}>
+                      <Col xs={24} md={12}>
+                        <Form.Item label={t('upload.headers')[1]}>
+                          <Input
+                            value={billEditForm.merchant}
+                            onChange={(e) => setBillEditForm({ ...billEditForm, merchant: e.target.value })}
+                          />
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={12}>
+                        <Form.Item label={t('upload.headers')[2]}>
+                          <InputNumber
+                            min={0}
+                            value={billEditForm.amount}
+                            onChange={(value) => setBillEditForm({ ...billEditForm, amount: value })}
+                            style={{ width: '100%' }}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Row gutter={12}>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('config.major')}>
+                          <Select
+                            value={billEditForm.major || undefined}
+                            placeholder={t('config.major')}
+                            onChange={handleBillEditMajorChange}
+                            allowClear
                           >
+                            {majorOptions.map((m) => (
+                              <Select.Option key={`bill-edit-major-${m}`} value={m}>
+                                {m}
+                              </Select.Option>
+                            ))}
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('config.minor')}>
+                          <Select
+                            value={billEditForm.category_id ?? undefined}
+                            placeholder={t('config.minor')}
+                            onChange={handleBillEditMinorChange}
+                            disabled={!billEditForm.major}
+                            allowClear
+                          >
+                            {billEditMinorOptions.map((c) => (
+                              <Select.Option key={`bill-edit-minor-${c.id}`} value={c.id}>
+                                {c.minor || c.full_name}
+                              </Select.Option>
+                            ))}
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                      <Col xs={24} md={8}>
+                        <Form.Item label={t('upload.headers')[4]}>
+                          <DatePicker
+                            value={billEditForm.bill_date ? dayjs(billEditForm.bill_date, 'YYYY-MM-DD') : null}
+                            onChange={(date) =>
+                              setBillEditForm({
+                                ...billEditForm,
+                                bill_date: date ? date.format('YYYY-MM-DD') : '',
+                              })
+                            }
+                            style={{ width: '100%' }}
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Form.Item label={t('analytics.includeInBudget')}>
+                      <Switch
+                        checked={billEditForm.include_in_budget}
+                        onChange={(checked) => setBillEditForm({ ...billEditForm, include_in_budget: checked })}
+                      />
+                    </Form.Item>
+                  </Form>
+                </Modal>
+              </Space>
+            </Tabs.TabPane>
+
+            <Tabs.TabPane tab={t('tabs.3')} key="config">
+              <Tabs defaultActiveKey="ledger">
+                <Tabs.TabPane tab={t('settings.ledger')} key="ledger">
+                  <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                    <Row gutter={[16, 16]}>
+                      <Col span={24}>
+                        <Card title="当前账本">
+                          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                             <Form layout="vertical">
                               <Row gutter={12}>
-                                <Col xs={24} md={6}>
-                                  <Form.Item label={t('recurring.amount')}>
+                                <Col xs={24} md={12}>
+                                  <Form.Item label={t('ledger.name')}>
+                                    <Input
+                                      value={ledgerForm.name}
+                                      onChange={(e) => setLedgerForm({ ...ledgerForm, name: e.target.value })}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                                <Col xs={24} md={12}>
+                                  <Form.Item label={t('ledger.budget')}>
                                     <InputNumber
                                       min={0}
-                                      value={recurringForm.amount}
-                                      onChange={(value) => setRecurringForm({ ...recurringForm, amount: value })}
-                                      style={{ width: '100%' }}
-                                    />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={24} md={6}>
-                                  <Form.Item label={t('recurring.keyword')}>
-                                    <Input
-                                      value={recurringForm.keyword}
-                                      onChange={(e) => setRecurringForm({ ...recurringForm, keyword: e.target.value })}
-                                    />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={24} md={6}>
-                                  <Form.Item label={t('config.major')}>
-                                    <Select
-                                      value={recurringForm.major || undefined}
-                                      placeholder={t('config.major')}
-                                      onChange={handleRecurringMajorChange}
-                                      allowClear
-                                    >
-                                      {recurringMajorOptions.map((m) => (
-                                        <Select.Option key={m} value={m}>
-                                          {m}
-                                        </Select.Option>
-                                      ))}
-                                    </Select>
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={24} md={6}>
-                                  <Form.Item label={t('config.minor')}>
-                                    <Select
-                                      value={recurringForm.category_id ?? undefined}
-                                      placeholder={t('config.minor')}
-                                      onChange={handleRecurringMinorChange}
-                                      disabled={!recurringForm.major}
-                                      allowClear
-                                    >
-                                      {recurringMinorOptions.map((c) => (
-                                        <Select.Option key={c.id} value={c.id}>
-                                          {c.minor || c.full_name}
-                                        </Select.Option>
-                                      ))}
-                                    </Select>
-                                  </Form.Item>
-                                </Col>
-                              </Row>
-                              <Row gutter={12}>
-                                <Col xs={24} md={6}>
-                                  <Form.Item label={t('recurring.scheduleType')}>
-                                    <Select
-                                      value={recurringForm.schedule_type}
-                                      onChange={handleRecurringScheduleTypeChange}
-                                    >
-                                      <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
-                                      <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
-                                    </Select>
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={24} md={6}>
-                                  <Form.Item
-                                    label={
-                                      recurringForm.schedule_type === 'weekly'
-                                        ? t('recurring.weekday')
-                                        : t('recurring.monthDay')
-                                    }
-                                  >
-                                    <Select
-                                      mode="multiple"
-                                      value={recurringForm.schedule_value}
-                                      onChange={(value) =>
-                                        setRecurringForm({ ...recurringForm, schedule_value: value })
-                                      }
-                                      options={
-                                        recurringForm.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions
-                                      }
-                                    />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={24} md={6}>
-                                  <Form.Item label={t('recurring.startDate')}>
-                                    <DatePicker
-                                      value={
-                                        recurringForm.start_date
-                                          ? dayjs(recurringForm.start_date, 'YYYY-MM-DD')
-                                          : null
-                                      }
-                                      onChange={handleRecurringStartDateChange}
-                                      style={{ width: '100%' }}
-                                    />
-                                  </Form.Item>
-                                </Col>
-                                <Col xs={24} md={6}>
-                                  <Form.Item label={t('recurring.endDate')}>
-                                    <DatePicker
-                                      allowClear
-                                      value={
-                                        recurringForm.end_date ? dayjs(recurringForm.end_date, 'YYYY-MM-DD') : null
-                                      }
-                                      onChange={(date) =>
-                                        setRecurringForm({
-                                          ...recurringForm,
-                                          end_date: date ? date.format('YYYY-MM-DD') : '',
-                                        })
-                                      }
+                                      value={ledgerForm.monthly_budget}
+                                      onChange={(value) => setLedgerForm({ ...ledgerForm, monthly_budget: value })}
                                       style={{ width: '100%' }}
                                     />
                                   </Form.Item>
                                 </Col>
                               </Row>
-                              <Row gutter={12}>
-                                <Col xs={24} md={6}>
-                                  <Form.Item label={t('recurring.includeInBudget')}>
-                                    <Switch
-                                      checked={recurringForm.include_in_budget}
-                                      onChange={(checked) =>
-                                        setRecurringForm({ ...recurringForm, include_in_budget: checked })
-                                      }
-                                    />
-                                  </Form.Item>
-                                </Col>
-                              </Row>
+                              <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+                                <Button type="primary" icon={<SaveOutlined />} onClick={saveLedger}>
+                                  {t('ledger.save')}
+                                </Button>
+                              </div>
                             </Form>
-                          </Modal>
 
-                          <Modal
-                            title={t('recurring.manageTitle')}
-                            open={recurringManageOpen}
-                            onCancel={() => setRecurringManageOpen(false)}
-                            footer={null}
-                            style={{ top: '20%' }}
-                            width={1200}
-                          >
-                            <Table
-                              rowKey="id"
-                              columns={recurringColumns}
-                              dataSource={recurringRules}
-                              pagination={{ pageSize: 8 }}
-                              scroll={{ x: 1360 }}
-                            />
-                          </Modal>
+                            <Divider style={{ borderTop: '2px solid #bfbfbf', margin: '20px 0' }} />
 
-                          <Modal
-                            title="账单模板管理"
-                            open={templateManageOpen}
-                            onCancel={() => setTemplateManageOpen(false)}
-                            footer={null}
-                            style={{ top: '20%' }}
-                            width={1200}
-                          >
-                            <Table
-                              rowKey="name"
-                              columns={templateColumns}
-                              dataSource={templates}
-                              pagination={{ pageSize: 8 }}
-                              scroll={{ x: 1000 }}
-                            />
-                          </Modal>
-
-                          <Modal
-                            title="删除模板"
-                            open={templateDeleteOpen}
-                            onCancel={() => setTemplateDeleteOpen(false)}
-                            onOk={confirmTemplateDelete}
-                            okButtonProps={{ danger: true }}
-                            okText="删除"
-                            cancelText="取消"
-                            style={{ top: '20%' }}
-                          >
-                            <p>确定要删除模板 "{templateToDelete}" 吗？</p>
-                          </Modal>
-
-                          <Modal
-                            title="编辑模板"
-                            open={templateEditOpen}
-                            onCancel={() => {
-                              setTemplateEditOpen(false)
-                              setEditingTemplate(null)
-                            }}
-                            onOk={saveTemplateEdit}
-                            okText="保存"
-                            cancelText="取消"
-                            style={{ top: '20%' }}
-                            width={800}
-                          >
-                            {editingTemplate && (
-                              <Form layout="vertical">
-                                <Row gutter={12}>
-                                  <Col xs={24} md={12}>
-                                    <Form.Item label="模板名称">
-                                      <Input
-                                        value={editingTemplate.name}
-                                        onChange={(e) => setEditingTemplate({
-                                          ...editingTemplate,
-                                          name: e.target.value
-                                        })}
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                  <Col xs={24} md={12}>
-                                    <Form.Item label="优先级">
-                                      <InputNumber
-                                        min={0}
-                                        max={1000}
-                                        value={editingTemplate.priority}
-                                        onChange={(value) => setEditingTemplate({
-                                          ...editingTemplate,
-                                          priority: value
-                                        })}
-                                        style={{ width: '100%' }}
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                </Row>
-                                <Row gutter={12}>
-                                  <Col xs={24} md={12}>
-                                    <Form.Item label="商品名行号">
-                                      <Input
-                                        value={Array.isArray(editingTemplate.extract?.item?.line)
-                                          ? editingTemplate.extract.item.line.join(',')
-                                          : editingTemplate.extract?.item?.line || ''}
-                                        onChange={(e) => {
-                                          const value = e.target.value
-                                          const lineNumbers = value.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n))
-                                          setEditingTemplate({
-                                            ...editingTemplate,
-                                            extract: {
-                                              ...editingTemplate.extract,
-                                              item: {
-                                                ...editingTemplate.extract?.item,
-                                                line: lineNumbers.length === 1 ? lineNumbers[0] : lineNumbers
-                                              }
-                                            }
-                                          })
-                                        }}
-                                        placeholder="例如: 0 或 0,1,2"
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                  <Col xs={24} md={12}>
-                                    <Form.Item label="金额行号">
-                                      <Input
-                                        value={Array.isArray(editingTemplate.extract?.amount?.line)
-                                          ? editingTemplate.extract.amount.line.join(',')
-                                          : editingTemplate.extract?.amount?.line || ''}
-                                        onChange={(e) => {
-                                          const value = e.target.value
-                                          const lineNumbers = value.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n))
-                                          setEditingTemplate({
-                                            ...editingTemplate,
-                                            extract: {
-                                              ...editingTemplate.extract,
-                                              amount: {
-                                                ...editingTemplate.extract?.amount,
-                                                line: lineNumbers.length === 1 ? lineNumbers[0] : lineNumbers
-                                              }
-                                            }
-                                          })
-                                        }}
-                                        placeholder="例如: 5 或 4,5,6"
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                </Row>
-                                <Form.Item label="匹配关键词 (any)">
-                                  <Input.TextArea
-                                    rows={3}
-                                    value={editingTemplate.match?.any?.join('\n') || ''}
-                                    onChange={(e) => {
-                                      const keywords = e.target.value.split('\n').filter(k => k.trim())
-                                      setEditingTemplate({
-                                        ...editingTemplate,
-                                        match: {
-                                          ...editingTemplate.match,
-                                          any: keywords
-                                        }
-                                      })
+                            <Row justify="space-between" align="middle">
+                              <Col>
+                                <Text strong>账单识别管理</Text>
+                              </Col>
+                              <Col>
+                                <Space>
+                                  <Button type="primary" onClick={() => setTemplateWizardOpen(true)}>
+                                    新增
+                                  </Button>
+                                  <Button
+                                    onClick={() => {
+                                      setTemplateManageOpen(true)
+                                      loadTemplates()
                                     }}
-                                    placeholder="每行一个关键词"
-                                  />
-                                </Form.Item>
-                              </Form>
-                            )}
-                          </Modal>
+                                  >
+                                    查看修改
+                                  </Button>
+                                </Space>
+                              </Col>
+                            </Row>
 
-                          <Modal
-                            title="删除周期性规则"
-                            open={recurringDeleteOpen}
-                            onCancel={() => setRecurringDeleteOpen(false)}
-                            onOk={confirmRecurringDelete}
-                            okButtonProps={{ danger: true }}
-                            okText="删除"
-                            cancelText="取消"
-                            style={{ top: '20%' }}
-                          >
-                            <p>确定要删除这条周期性规则吗？</p>
-                          </Modal>
+                            <Divider style={{ borderTop: '2px solid #bfbfbf', margin: '20px 0' }} />
 
-                          <Modal
-                            title="编辑周期性规则"
-                            open={recurringEditOpen}
-                            onCancel={() => {
-                              setRecurringEditOpen(false)
-                              setEditingRecurringRule(null)
-                            }}
-                            onOk={saveRecurringEdit}
-                            okText="保存"
-                            cancelText="取消"
-                            style={{ top: '20%' }}
-                            width={900}
-                          >
-                            {editingRecurringRule && (
+                            <Row justify="space-between" align="middle">
+                              <Col>
+                                <Text strong>{t('recurring.title')}</Text>
+                              </Col>
+                              <Col>
+                                <Space>
+                                  <Button type="primary" onClick={() => setRecurringCreateOpen(true)}>
+                                    {t('recurring.createButton')}
+                                  </Button>
+                                  <Button
+                                    onClick={() => {
+                                      setRecurringManageOpen(true)
+                                      loadRecurringRules()
+                                    }}
+                                  >
+                                    {t('recurring.manageButton')}
+                                  </Button>
+                                </Space>
+                              </Col>
+                            </Row>
+
+                            <Modal
+                              title={t('recurring.createTitle')}
+                              open={recurringCreateOpen}
+                              onCancel={() => setRecurringCreateOpen(false)}
+                              onOk={async () => {
+                                const ok = await addRecurringRule()
+                                if (ok) setRecurringCreateOpen(false)
+                              }}
+                              okText={t('ledger.save')}
+                              cancelText="取消"
+                              style={{ top: '20%' }}
+                              width={900}
+                            >
                               <Form layout="vertical">
                                 <Row gutter={12}>
                                   <Col xs={24} md={6}>
                                     <Form.Item label={t('recurring.amount')}>
                                       <InputNumber
                                         min={0}
-                                        value={editingRecurringRule.amount}
-                                        onChange={(value) => setEditingRecurringRule({
-                                          ...editingRecurringRule,
-                                          amount: value
-                                        })}
+                                        value={recurringForm.amount}
+                                        onChange={(value) => setRecurringForm({ ...recurringForm, amount: value })}
                                         style={{ width: '100%' }}
                                       />
                                     </Form.Item>
@@ -3199,26 +2924,17 @@ function App() {
                                   <Col xs={24} md={6}>
                                     <Form.Item label={t('recurring.keyword')}>
                                       <Input
-                                        value={editingRecurringRule.keyword}
-                                        onChange={(e) => setEditingRecurringRule({
-                                          ...editingRecurringRule,
-                                          keyword: e.target.value
-                                        })}
+                                        value={recurringForm.keyword}
+                                        onChange={(e) => setRecurringForm({ ...recurringForm, keyword: e.target.value })}
                                       />
                                     </Form.Item>
                                   </Col>
                                   <Col xs={24} md={6}>
                                     <Form.Item label={t('config.major')}>
                                       <Select
-                                        value={categories.find(c => c.id === editingRecurringRule.category_id)?.major || undefined}
+                                        value={recurringForm.major || undefined}
                                         placeholder={t('config.major')}
-                                        onChange={(value) => {
-                                          setEditingRecurringRule({
-                                            ...editingRecurringRule,
-                                            category_id: null,
-                                            category: ''
-                                          })
-                                        }}
+                                        onChange={handleRecurringMajorChange}
                                         allowClear
                                       >
                                         {recurringMajorOptions.map((m) => (
@@ -3232,19 +2948,13 @@ function App() {
                                   <Col xs={24} md={6}>
                                     <Form.Item label={t('config.minor')}>
                                       <Select
-                                        value={editingRecurringRule.category_id ?? undefined}
+                                        value={recurringForm.category_id ?? undefined}
                                         placeholder={t('config.minor')}
-                                        onChange={(value) => {
-                                          const match = categories.find((c) => c.id === value)
-                                          setEditingRecurringRule({
-                                            ...editingRecurringRule,
-                                            category_id: value || null,
-                                            category: match ? match.full_name : ''
-                                          })
-                                        }}
+                                        onChange={handleRecurringMinorChange}
+                                        disabled={!recurringForm.major}
                                         allowClear
                                       >
-                                        {categories.filter(c => c.major === categories.find(cat => cat.id === editingRecurringRule.category_id)?.major).map((c) => (
+                                        {recurringMinorOptions.map((c) => (
                                           <Select.Option key={c.id} value={c.id}>
                                             {c.minor || c.full_name}
                                           </Select.Option>
@@ -3257,14 +2967,8 @@ function App() {
                                   <Col xs={24} md={6}>
                                     <Form.Item label={t('recurring.scheduleType')}>
                                       <Select
-                                        value={editingRecurringRule.schedule_type}
-                                        onChange={(value) => setEditingRecurringRule({
-                                          ...editingRecurringRule,
-                                          schedule_type: value,
-                                          schedule_value: normalizeScheduleValues(value, editingRecurringRule.schedule_value).length
-                                            ? normalizeScheduleValues(value, editingRecurringRule.schedule_value)
-                                            : [1]
-                                        })}
+                                        value={recurringForm.schedule_type}
+                                        onChange={handleRecurringScheduleTypeChange}
                                       >
                                         <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
                                         <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
@@ -3272,28 +2976,34 @@ function App() {
                                     </Form.Item>
                                   </Col>
                                   <Col xs={24} md={6}>
-                                    <Form.Item label={t('recurring.scheduleValue')}>
+                                    <Form.Item
+                                      label={
+                                        recurringForm.schedule_type === 'weekly'
+                                          ? t('recurring.weekday')
+                                          : t('recurring.monthDay')
+                                      }
+                                    >
                                       <Select
                                         mode="multiple"
-                                        value={Array.isArray(editingRecurringRule.schedule_value) ? editingRecurringRule.schedule_value : []}
-                                        onChange={(value) => setEditingRecurringRule({
-                                          ...editingRecurringRule,
-                                          schedule_value: value
-                                        })}
-                                        options={editingRecurringRule.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions}
+                                        value={recurringForm.schedule_value}
+                                        onChange={(value) =>
+                                          setRecurringForm({ ...recurringForm, schedule_value: value })
+                                        }
+                                        options={
+                                          recurringForm.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions
+                                        }
                                       />
                                     </Form.Item>
                                   </Col>
                                   <Col xs={24} md={6}>
                                     <Form.Item label={t('recurring.startDate')}>
                                       <DatePicker
-                                        value={editingRecurringRule.start_date ? dayjs(editingRecurringRule.start_date, 'YYYY-MM-DD') : null}
-                                        onChange={(date) => setEditingRecurringRule({
-                                          ...editingRecurringRule,
-                                          start_date: date ? date.format('YYYY-MM-DD') : '',
-                                          end_date: editingRecurringRule.end_date && date && editingRecurringRule.end_date < date.format('YYYY-MM-DD')
-                                            ? date.format('YYYY-MM-DD') : editingRecurringRule.end_date
-                                        })}
+                                        value={
+                                          recurringForm.start_date
+                                            ? dayjs(recurringForm.start_date, 'YYYY-MM-DD')
+                                            : null
+                                        }
+                                        onChange={handleRecurringStartDateChange}
                                         style={{ width: '100%' }}
                                       />
                                     </Form.Item>
@@ -3302,11 +3012,15 @@ function App() {
                                     <Form.Item label={t('recurring.endDate')}>
                                       <DatePicker
                                         allowClear
-                                        value={editingRecurringRule.end_date ? dayjs(editingRecurringRule.end_date, 'YYYY-MM-DD') : null}
-                                        onChange={(date) => setEditingRecurringRule({
-                                          ...editingRecurringRule,
-                                          end_date: date ? date.format('YYYY-MM-DD') : ''
-                                        })}
+                                        value={
+                                          recurringForm.end_date ? dayjs(recurringForm.end_date, 'YYYY-MM-DD') : null
+                                        }
+                                        onChange={(date) =>
+                                          setRecurringForm({
+                                            ...recurringForm,
+                                            end_date: date ? date.format('YYYY-MM-DD') : '',
+                                          })
+                                        }
                                         style={{ width: '100%' }}
                                       />
                                     </Form.Item>
@@ -3314,589 +3028,920 @@ function App() {
                                 </Row>
                                 <Row gutter={12}>
                                   <Col xs={24} md={6}>
-                                    <Form.Item label={t('recurring.enabled')}>
-                                      <Switch
-                                        checked={Boolean(editingRecurringRule.enabled)}
-                                        onChange={(checked) => setEditingRecurringRule({
-                                          ...editingRecurringRule,
-                                          enabled: checked
-                                        })}
-                                      />
-                                    </Form.Item>
-                                  </Col>
-                                  <Col xs={24} md={6}>
                                     <Form.Item label={t('recurring.includeInBudget')}>
                                       <Switch
-                                        checked={editingRecurringRule.include_in_budget !== false}
-                                        onChange={(checked) => setEditingRecurringRule({
-                                          ...editingRecurringRule,
-                                          include_in_budget: checked
-                                        })}
+                                        checked={recurringForm.include_in_budget}
+                                        onChange={(checked) =>
+                                          setRecurringForm({ ...recurringForm, include_in_budget: checked })
+                                        }
                                       />
                                     </Form.Item>
                                   </Col>
                                 </Row>
                               </Form>
-                            )}
-                          </Modal>
-                        </Space>
+                            </Modal>
+
+                            <Modal
+                              title={t('recurring.manageTitle')}
+                              open={recurringManageOpen}
+                              onCancel={() => setRecurringManageOpen(false)}
+                              footer={null}
+                              style={{ top: '20%' }}
+                              width={1200}
+                            >
+                              <Table
+                                rowKey="id"
+                                columns={recurringColumns}
+                                dataSource={recurringRules}
+                                pagination={{ pageSize: 8 }}
+                                scroll={{ x: 1360 }}
+                              />
+                            </Modal>
+
+                            <Modal
+                              title="账单模板管理"
+                              open={templateManageOpen}
+                              onCancel={() => setTemplateManageOpen(false)}
+                              footer={null}
+                              style={{ top: '20%' }}
+                              width={1200}
+                            >
+                              <Table
+                                rowKey="name"
+                                columns={templateColumns}
+                                dataSource={templates}
+                                pagination={{ pageSize: 8 }}
+                                scroll={{ x: 1000 }}
+                              />
+                            </Modal>
+
+                            <Modal
+                              title="删除模板"
+                              open={templateDeleteOpen}
+                              onCancel={() => setTemplateDeleteOpen(false)}
+                              onOk={confirmTemplateDelete}
+                              okButtonProps={{ danger: true }}
+                              okText="删除"
+                              cancelText="取消"
+                              style={{ top: '20%' }}
+                            >
+                              <p>确定要删除模板 "{templateToDelete}" 吗？</p>
+                            </Modal>
+
+                            <Modal
+                              title="编辑模板"
+                              open={templateEditOpen}
+                              onCancel={() => {
+                                setTemplateEditOpen(false)
+                                setEditingTemplate(null)
+                              }}
+                              onOk={saveTemplateEdit}
+                              okText="保存"
+                              cancelText="取消"
+                              style={{ top: '20%' }}
+                              width={800}
+                            >
+                              {editingTemplate && (
+                                <Form layout="vertical">
+                                  <Row gutter={12}>
+                                    <Col xs={24} md={12}>
+                                      <Form.Item label="模板名称">
+                                        <Input
+                                          value={editingTemplate.name}
+                                          onChange={(e) => setEditingTemplate({
+                                            ...editingTemplate,
+                                            name: e.target.value
+                                          })}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                      <Form.Item label="优先级">
+                                        <InputNumber
+                                          min={0}
+                                          max={1000}
+                                          value={editingTemplate.priority}
+                                          onChange={(value) => setEditingTemplate({
+                                            ...editingTemplate,
+                                            priority: value
+                                          })}
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                  </Row>
+                                  <Row gutter={12}>
+                                    <Col xs={24} md={12}>
+                                      <Form.Item label="商品名行号">
+                                        <Input
+                                          value={Array.isArray(editingTemplate.extract?.item?.line)
+                                            ? editingTemplate.extract.item.line.join(',')
+                                            : editingTemplate.extract?.item?.line || ''}
+                                          onChange={(e) => {
+                                            const value = e.target.value
+                                            const lineNumbers = value.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n))
+                                            setEditingTemplate({
+                                              ...editingTemplate,
+                                              extract: {
+                                                ...editingTemplate.extract,
+                                                item: {
+                                                  ...editingTemplate.extract?.item,
+                                                  line: lineNumbers.length === 1 ? lineNumbers[0] : lineNumbers
+                                                }
+                                              }
+                                            })
+                                          }}
+                                          placeholder="例如: 0 或 0,1,2"
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={12}>
+                                      <Form.Item label="金额行号">
+                                        <Input
+                                          value={Array.isArray(editingTemplate.extract?.amount?.line)
+                                            ? editingTemplate.extract.amount.line.join(',')
+                                            : editingTemplate.extract?.amount?.line || ''}
+                                          onChange={(e) => {
+                                            const value = e.target.value
+                                            const lineNumbers = value.split(',').map(n => parseInt(n.trim())).filter(n => !isNaN(n))
+                                            setEditingTemplate({
+                                              ...editingTemplate,
+                                              extract: {
+                                                ...editingTemplate.extract,
+                                                amount: {
+                                                  ...editingTemplate.extract?.amount,
+                                                  line: lineNumbers.length === 1 ? lineNumbers[0] : lineNumbers
+                                                }
+                                              }
+                                            })
+                                          }}
+                                          placeholder="例如: 5 或 4,5,6"
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                  </Row>
+                                  <Form.Item label="匹配关键词 (any)">
+                                    <Input.TextArea
+                                      rows={3}
+                                      value={editingTemplate.match?.any?.join('\n') || ''}
+                                      onChange={(e) => {
+                                        const keywords = e.target.value.split('\n').filter(k => k.trim())
+                                        setEditingTemplate({
+                                          ...editingTemplate,
+                                          match: {
+                                            ...editingTemplate.match,
+                                            any: keywords
+                                          }
+                                        })
+                                      }}
+                                      placeholder="每行一个关键词"
+                                    />
+                                  </Form.Item>
+                                </Form>
+                              )}
+                            </Modal>
+
+                            <Modal
+                              title="删除周期性规则"
+                              open={recurringDeleteOpen}
+                              onCancel={() => setRecurringDeleteOpen(false)}
+                              onOk={confirmRecurringDelete}
+                              okButtonProps={{ danger: true }}
+                              okText="删除"
+                              cancelText="取消"
+                              style={{ top: '20%' }}
+                            >
+                              <p>确定要删除这条周期性规则吗？</p>
+                            </Modal>
+
+                            <Modal
+                              title="编辑周期性规则"
+                              open={recurringEditOpen}
+                              onCancel={() => {
+                                setRecurringEditOpen(false)
+                                setEditingRecurringRule(null)
+                              }}
+                              onOk={saveRecurringEdit}
+                              okText="保存"
+                              cancelText="取消"
+                              style={{ top: '20%' }}
+                              width={900}
+                            >
+                              {editingRecurringRule && (
+                                <Form layout="vertical">
+                                  <Row gutter={12}>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('recurring.amount')}>
+                                        <InputNumber
+                                          min={0}
+                                          value={editingRecurringRule.amount}
+                                          onChange={(value) => setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            amount: value
+                                          })}
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('recurring.keyword')}>
+                                        <Input
+                                          value={editingRecurringRule.keyword}
+                                          onChange={(e) => setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            keyword: e.target.value
+                                          })}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('config.major')}>
+                                        <Select
+                                          value={categories.find(c => c.id === editingRecurringRule.category_id)?.major || undefined}
+                                          placeholder={t('config.major')}
+                                          onChange={(value) => {
+                                            setEditingRecurringRule({
+                                              ...editingRecurringRule,
+                                              category_id: null,
+                                              category: ''
+                                            })
+                                          }}
+                                          allowClear
+                                        >
+                                          {recurringMajorOptions.map((m) => (
+                                            <Select.Option key={m} value={m}>
+                                              {m}
+                                            </Select.Option>
+                                          ))}
+                                        </Select>
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('config.minor')}>
+                                        <Select
+                                          value={editingRecurringRule.category_id ?? undefined}
+                                          placeholder={t('config.minor')}
+                                          onChange={(value) => {
+                                            const match = categories.find((c) => c.id === value)
+                                            setEditingRecurringRule({
+                                              ...editingRecurringRule,
+                                              category_id: value || null,
+                                              category: match ? match.full_name : ''
+                                            })
+                                          }}
+                                          allowClear
+                                        >
+                                          {categories.filter(c => c.major === categories.find(cat => cat.id === editingRecurringRule.category_id)?.major).map((c) => (
+                                            <Select.Option key={c.id} value={c.id}>
+                                              {c.minor || c.full_name}
+                                            </Select.Option>
+                                          ))}
+                                        </Select>
+                                      </Form.Item>
+                                    </Col>
+                                  </Row>
+                                  <Row gutter={12}>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('recurring.scheduleType')}>
+                                        <Select
+                                          value={editingRecurringRule.schedule_type}
+                                          onChange={(value) => setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            schedule_type: value,
+                                            schedule_value: normalizeScheduleValues(value, editingRecurringRule.schedule_value).length
+                                              ? normalizeScheduleValues(value, editingRecurringRule.schedule_value)
+                                              : [1]
+                                          })}
+                                        >
+                                          <Select.Option value="weekly">{t('recurring.scheduleWeekly')}</Select.Option>
+                                          <Select.Option value="monthly">{t('recurring.scheduleMonthly')}</Select.Option>
+                                        </Select>
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('recurring.scheduleValue')}>
+                                        <Select
+                                          mode="multiple"
+                                          value={Array.isArray(editingRecurringRule.schedule_value) ? editingRecurringRule.schedule_value : []}
+                                          onChange={(value) => setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            schedule_value: value
+                                          })}
+                                          options={editingRecurringRule.schedule_type === 'weekly' ? weekdayOptions : monthDayOptions}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('recurring.startDate')}>
+                                        <DatePicker
+                                          value={editingRecurringRule.start_date ? dayjs(editingRecurringRule.start_date, 'YYYY-MM-DD') : null}
+                                          onChange={(date) => setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            start_date: date ? date.format('YYYY-MM-DD') : '',
+                                            end_date: editingRecurringRule.end_date && date && editingRecurringRule.end_date < date.format('YYYY-MM-DD')
+                                              ? date.format('YYYY-MM-DD') : editingRecurringRule.end_date
+                                          })}
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('recurring.endDate')}>
+                                        <DatePicker
+                                          allowClear
+                                          value={editingRecurringRule.end_date ? dayjs(editingRecurringRule.end_date, 'YYYY-MM-DD') : null}
+                                          onChange={(date) => setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            end_date: date ? date.format('YYYY-MM-DD') : ''
+                                          })}
+                                          style={{ width: '100%' }}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                  </Row>
+                                  <Row gutter={12}>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('recurring.enabled')}>
+                                        <Switch
+                                          checked={Boolean(editingRecurringRule.enabled)}
+                                          onChange={(checked) => setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            enabled: checked
+                                          })}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                    <Col xs={24} md={6}>
+                                      <Form.Item label={t('recurring.includeInBudget')}>
+                                        <Switch
+                                          checked={editingRecurringRule.include_in_budget !== false}
+                                          onChange={(checked) => setEditingRecurringRule({
+                                            ...editingRecurringRule,
+                                            include_in_budget: checked
+                                          })}
+                                        />
+                                      </Form.Item>
+                                    </Col>
+                                  </Row>
+                                </Form>
+                              )}
+                            </Modal>
+                          </Space>
+                        </Card>
+                      </Col>
+                      <Col span={24}>
+                        <Card title={t('ledger.newLedger')}>
+                          <Form layout="vertical">
+                            <Row gutter={12}>
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('ledger.name')}>
+                                  <Input
+                                    value={newLedger.name}
+                                    onChange={(e) => setNewLedger({ ...newLedger, name: e.target.value })}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('ledger.budget')}>
+                                  <InputNumber
+                                    min={0}
+                                    value={newLedger.monthly_budget}
+                                    onChange={(value) => setNewLedger({ ...newLedger, monthly_budget: value })}
+                                    style={{ width: '100%' }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                            <Button type="dashed" icon={<PlusOutlined />} onClick={createLedger}>
+                              {t('ledger.create')}
+                            </Button>
+                          </Form>
+                        </Card>
+                      </Col>
+                      <Col span={24}>
+                        <Card title="删除账本" style={{ borderColor: '#ff4d4f' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <p style={{ marginBottom: 16, color: '#666' }}>
+                              删除当前账本将移除所有相关数据，但会自动生成备份，可在下方恢复。
+                            </p>
+                            <Button
+                              danger
+                              size="large"
+                              icon={<DeleteOutlined />}
+                              onClick={deleteLedger}
+                              disabled={!currentLedgerId || ledgers.length <= 1}
+                            >
+                              {t('ledger.delete')}
+                            </Button>
+                          </div>
+                        </Card>
+                      </Col>
+                      <Col span={24}>
+                        <Card title={t('ledger.backupsTitle')}>
+                          <Table
+                            rowKey="id"
+                            columns={ledgerBackupColumns}
+                            dataSource={ledgerBackups}
+                            pagination={{ pageSize: 6 }}
+                            locale={{ emptyText: t('ledger.backupEmpty') }}
+                          />
+                        </Card>
+                      </Col>
+                    </Row>
+                  </Space>
+                </Tabs.TabPane>
+                <Tabs.TabPane tab={t('settings.categories')} key="categories">
+                  <Row gutter={[16, 16]}>
+                    <Col span={24}>
+                      <Card title={t('config.categoriesTitle')}>
+                        <Row justify="space-between" align="middle">
+                          <Col>
+                            <Text strong>{t('config.categoriesTitle')}</Text>
+                          </Col>
+                          <Col>
+                            <Space>
+                              <Button type="primary" onClick={() => setCategoryCreateOpen(true)}>
+                                {t('config.createButton')}
+                              </Button>
+                              <Button
+                                onClick={() => {
+                                  setCategoryManageOpen(true)
+                                  loadCategories()
+                                }}
+                              >
+                                {t('config.manageButton')}
+                              </Button>
+                            </Space>
+                          </Col>
+                        </Row>
+
+                        <Modal
+                          title={t('config.createCategoryTitle')}
+                          open={categoryCreateOpen}
+                          onCancel={() => {
+                            setCategoryCreateOpen(false)
+                            setCategoryCreateError('')
+                          }}
+                          onOk={async () => {
+                            const ok = await addCategoryGroup()
+                            if (ok) setCategoryCreateOpen(false)
+                          }}
+                          okText={t('ledger.save')}
+                          cancelText="取消"
+                          style={{ top: '20%' }}
+                          width={700}
+                        >
+                          <Form layout="vertical">
+                            <Row gutter={12}>
+                              <Col xs={24} md={12}>
+                                <Form.Item
+                                  label={t('config.major')}
+                                  validateStatus={categoryCreateError ? 'error' : ''}
+                                  help={categoryCreateError}
+                                >
+                                  <Input
+                                    value={catForm.major}
+                                    placeholder=""
+                                    onChange={(e) => {
+                                      setCatForm({ ...catForm, major: e.target.value })
+                                      if (categoryCreateError) setCategoryCreateError('')
+                                    }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('config.minor')}>
+                                  <Input
+                                    value={catForm.minor}
+                                    placeholder=""
+                                    onChange={(e) => setCatForm({ ...catForm, minor: e.target.value })}
+                                  />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                            <Row gutter={12} align="middle">
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('config.scope')}>
+                                  <Select value={catForm.scope} onChange={(value) => setCatForm({ ...catForm, scope: value })}>
+                                    <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
+                                    <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </Form>
+                        </Modal>
+
+                        <Modal
+                          title={t('config.manageCategoryTitle')}
+                          open={categoryManageOpen}
+                          onCancel={() => setCategoryManageOpen(false)}
+                          footer={null}
+                          style={{ top: '20%' }}
+                          width={900}
+                        >
+                          <Space wrap style={{ marginBottom: 12 }}>
+                            <Select
+                              placeholder={t('config.filterMajor')}
+                              value={categoryFilter.major || undefined}
+                              allowClear
+                              style={{ width: 200 }}
+                              onChange={(value) =>
+                                setCategoryFilter({ ...categoryFilter, major: value || '', minor: '' })
+                              }
+                            >
+                              {majorOptions.map((m) => (
+                                <Select.Option key={m} value={m}>
+                                  {m}
+                                </Select.Option>
+                              ))}
+                            </Select>
+                            <Select
+                              placeholder={t('config.filterMinor')}
+                              value={categoryFilter.minor || undefined}
+                              allowClear
+                              style={{ width: 200 }}
+                              onChange={(value) => setCategoryFilter({ ...categoryFilter, minor: value || '' })}
+                            >
+                              {categoryFilterMinorOptions.map((c) => (
+                                <Select.Option key={`${c.id}-minor`} value={c.minor}>
+                                  {c.minor || c.full_name}
+                                </Select.Option>
+                              ))}
+                            </Select>
+                          </Space>
+                          <Table
+                            rowKey="id"
+                            columns={categoryColumns}
+                            dataSource={categoryFiltered}
+                            pagination={{ pageSize: 8 }}
+                          />
+                        </Modal>
+                        <Modal
+                          title="修改分类"
+                          open={categoryEditOpen}
+                          onCancel={() => setCategoryEditOpen(false)}
+                          onOk={handleCategoryEditSave}
+                          okText="修改"
+                          cancelText="取消"
+                          style={{ top: '20%' }}
+                          width={600}
+                        >
+                          <Form layout="vertical">
+                            <Row gutter={12}>
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('config.major')}>
+                                  <Input
+                                    value={categoryEditForm.major}
+                                    onChange={(e) =>
+                                      setCategoryEditForm({ ...categoryEditForm, major: e.target.value })
+                                    }
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('config.minor')}>
+                                  <Input
+                                    value={categoryEditForm.minor}
+                                    onChange={(e) =>
+                                      setCategoryEditForm({ ...categoryEditForm, minor: e.target.value })
+                                    }
+                                  />
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                            <Row gutter={12}>
+                              <Col xs={24} md={12}>
+                                <Form.Item label={t('config.scope')}>
+                                  <Select
+                                    value={categoryEditForm.scope}
+                                    onChange={(value) =>
+                                      setCategoryEditForm({ ...categoryEditForm, scope: value })
+                                    }
+                                  >
+                                    <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
+                                    <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </Form>
+                        </Modal>
                       </Card>
                     </Col>
                     <Col span={24}>
-                      <Card title={t('ledger.newLedger')}>
-                        <Form layout="vertical">
-                          <Row gutter={12}>
-                            <Col xs={24} md={12}>
-                              <Form.Item label={t('ledger.name')}>
-                                <Input
-                                  value={newLedger.name}
-                                  onChange={(e) => setNewLedger({ ...newLedger, name: e.target.value })}
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={12}>
-                              <Form.Item label={t('ledger.budget')}>
-                                <InputNumber
-                                  min={0}
-                                  value={newLedger.monthly_budget}
-                                  onChange={(value) => setNewLedger({ ...newLedger, monthly_budget: value })}
-                                  style={{ width: '100%' }}
-                                />
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                          <Button type="dashed" icon={<PlusOutlined />} onClick={createLedger}>
-                            {t('ledger.create')}
-                          </Button>
-                        </Form>
-                      </Card>
-                    </Col>
-                    <Col span={24}>
-                      <Card title="删除账本" style={{ borderColor: '#ff4d4f' }}>
-                        <div style={{ textAlign: 'center' }}>
-                          <p style={{ marginBottom: 16, color: '#666' }}>
-                            删除当前账本将移除所有相关数据，但会自动生成备份，可在下方恢复。
-                          </p>
-                          <Button
-                            danger
-                            size="large"
-                            icon={<DeleteOutlined />}
-                            onClick={deleteLedger}
-                            disabled={!currentLedgerId || ledgers.length <= 1}
-                          >
-                            {t('ledger.delete')}
-                          </Button>
-                        </div>
-                      </Card>
-                    </Col>
-                    <Col span={24}>
-                      <Card title={t('ledger.backupsTitle')}>
-                        <Table
-                          rowKey="id"
-                          columns={ledgerBackupColumns}
-                          dataSource={ledgerBackups}
-                          pagination={{ pageSize: 6 }}
-                          locale={{ emptyText: t('ledger.backupEmpty') }}
-                        />
+                      <Card title={t('config.rulesTitle')}>
+                        <Row justify="space-between" align="middle">
+                          <Col>
+                            <Text strong>{t('config.rulesTitle')}</Text>
+                          </Col>
+                          <Col>
+                            <Space>
+                              <Button
+                                type="primary"
+                                onClick={() => {
+                                  setRuleCreateError('')
+                                  setRuleCreateOpen(true)
+                                }}
+                              >
+                                {t('config.createButton')}
+                              </Button>
+                              <Button
+                                onClick={() => {
+                                  setRuleManageOpen(true)
+                                  loadRules()
+                                }}
+                              >
+                                {t('config.manageButton')}
+                              </Button>
+                            </Space>
+                          </Col>
+                        </Row>
+
+                        <Modal
+                          title={t('config.createRuleTitle')}
+                          open={ruleCreateOpen}
+                          onCancel={() => {
+                            setRuleCreateOpen(false)
+                            setRuleCreateError('')
+                          }}
+                          onOk={async () => {
+                            const ok = await addRule()
+                            if (ok) setRuleCreateOpen(false)
+                          }}
+                          okText={t('ledger.save')}
+                          cancelText="取消"
+                          style={{ top: '20%' }}
+                          width={900}
+                        >
+                          <Form layout="vertical">
+                            <Row gutter={12}>
+                              <Col xs={24} md={8}>
+                                <Form.Item
+                                  label={t('config.keyword')}
+                                  validateStatus={ruleCreateError ? 'error' : ''}
+                                  help={ruleCreateError}
+                                >
+                                  <Input
+                                    value={ruleForm.keyword}
+                                    placeholder=""
+                                    onChange={(e) => {
+                                      setRuleForm({ ...ruleForm, keyword: e.target.value })
+                                      if (ruleCreateError) setRuleCreateError('')
+                                    }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.major')}>
+                                  <Select
+                                    value={ruleForm.major || undefined}
+                                    placeholder={t('config.major')}
+                                    onChange={handleRuleMajorChange}
+                                    allowClear
+                                  >
+                                    {ruleMajorOptions.map((m) => (
+                                      <Select.Option key={m} value={m}>
+                                        {m}
+                                      </Select.Option>
+                                    ))}
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.minor')}>
+                                  <Select
+                                    value={ruleForm.category_id ?? undefined}
+                                    placeholder={t('config.minor')}
+                                    onChange={handleRuleMinorChange}
+                                    disabled={!ruleForm.major}
+                                    allowClear
+                                  >
+                                    {ruleMinorOptions.map((c) => (
+                                      <Select.Option key={c.id} value={c.id}>
+                                        {c.minor || c.full_name}
+                                      </Select.Option>
+                                    ))}
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                            <Row gutter={12} align="middle">
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.priority')}>
+                                  <InputNumber
+                                    min={1}
+                                    value={ruleForm.priority}
+                                    onChange={(value) => setRuleForm({ ...ruleForm, priority: value })}
+                                    style={{ width: '100%' }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.scope')}>
+                                  <Select value={ruleForm.scope} onChange={(value) => setRuleForm({ ...ruleForm, scope: value })}>
+                                    <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
+                                    <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </Form>
+                        </Modal>
+
+                        <Modal
+                          title={t('config.manageRuleTitle')}
+                          open={ruleManageOpen}
+                          onCancel={() => setRuleManageOpen(false)}
+                          footer={null}
+                          style={{ top: '20%' }}
+                          width={1100}
+                        >
+                          <Space wrap style={{ marginBottom: 12 }}>
+                            <Input
+                              placeholder={t('config.filterKeyword')}
+                              value={ruleFilter.keyword}
+                              onChange={(e) => setRuleFilter({ ...ruleFilter, keyword: e.target.value })}
+                              style={{ width: 200 }}
+                            />
+                            <Select
+                              placeholder={t('config.filterMajor')}
+                              value={ruleFilter.major || undefined}
+                              allowClear
+                              style={{ width: 200 }}
+                              onChange={(value) => setRuleFilter({ ...ruleFilter, major: value || '', minor: '' })}
+                            >
+                              {ruleMajorOptions.map((m) => (
+                                <Select.Option key={`rule-major-${m}`} value={m}>
+                                  {m}
+                                </Select.Option>
+                              ))}
+                            </Select>
+                            <Select
+                              placeholder={t('config.filterMinor')}
+                              value={ruleFilter.minor || undefined}
+                              allowClear
+                              style={{ width: 200 }}
+                              onChange={(value) => setRuleFilter({ ...ruleFilter, minor: value || '' })}
+                            >
+                              {ruleFilterMinorOptions.map((c) => (
+                                <Select.Option key={`rule-minor-${c.id}`} value={c.minor}>
+                                  {c.minor || c.full_name}
+                                </Select.Option>
+                              ))}
+                            </Select>
+                          </Space>
+                          <Table rowKey="id" columns={rulesColumns} dataSource={rulesFiltered} pagination={{ pageSize: 8 }} />
+                        </Modal>
+                        <Modal
+                          title="修改规则"
+                          open={ruleEditOpen}
+                          onCancel={() => setRuleEditOpen(false)}
+                          onOk={handleRuleEditSave}
+                          okText="修改"
+                          cancelText="取消"
+                          style={{ top: '20%' }}
+                          width={800}
+                        >
+                          <Form layout="vertical">
+                            <Row gutter={12}>
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.keyword')}>
+                                  <Input
+                                    value={ruleEditForm.keyword}
+                                    onChange={(e) =>
+                                      setRuleEditForm({ ...ruleEditForm, keyword: e.target.value })
+                                    }
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.major')}>
+                                  <Select
+                                    value={ruleEditForm.major || undefined}
+                                    placeholder={t('config.major')}
+                                    onChange={handleRuleEditMajorChange}
+                                    allowClear
+                                  >
+                                    {ruleMajorOptions.map((m) => (
+                                      <Select.Option key={`rule-edit-major-${m}`} value={m}>
+                                        {m}
+                                      </Select.Option>
+                                    ))}
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.minor')}>
+                                  <Select
+                                    value={ruleEditForm.category_id ?? undefined}
+                                    placeholder={t('config.minor')}
+                                    onChange={handleRuleEditMinorChange}
+                                    disabled={!ruleEditForm.major}
+                                    allowClear
+                                  >
+                                    {ruleEditMinorOptions.map((c) => (
+                                      <Select.Option key={`rule-edit-minor-${c.id}`} value={c.id}>
+                                        {c.minor || c.full_name}
+                                      </Select.Option>
+                                    ))}
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                            <Row gutter={12}>
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.priority')}>
+                                  <InputNumber
+                                    min={1}
+                                    value={ruleEditForm.priority}
+                                    onChange={(value) =>
+                                      setRuleEditForm({ ...ruleEditForm, priority: value })
+                                    }
+                                    style={{ width: '100%' }}
+                                  />
+                                </Form.Item>
+                              </Col>
+                              <Col xs={24} md={8}>
+                                <Form.Item label={t('config.scope')}>
+                                  <Select
+                                    value={ruleEditForm.scope}
+                                    onChange={(value) => setRuleEditForm({ ...ruleEditForm, scope: value })}
+                                  >
+                                    <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
+                                    <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                            </Row>
+                          </Form>
+                        </Modal>
                       </Card>
                     </Col>
                   </Row>
-                </Space>
-              </Tabs.TabPane>
-              <Tabs.TabPane tab={t('settings.categories')} key="categories">
-                <Row gutter={[16, 16]}>
-                  <Col span={24}>
-                    <Card title={t('config.categoriesTitle')}>
-                      <Row justify="space-between" align="middle">
-                        <Col>
-                          <Text strong>{t('config.categoriesTitle')}</Text>
-                        </Col>
-                        <Col>
-                          <Space>
-                            <Button type="primary" onClick={() => setCategoryCreateOpen(true)}>
-                              {t('config.createButton')}
-                            </Button>
-                            <Button
-                              onClick={() => {
-                                setCategoryManageOpen(true)
-                                loadCategories()
-                              }}
-                            >
-                              {t('config.manageButton')}
-                            </Button>
-                          </Space>
-                        </Col>
-                      </Row>
+                </Tabs.TabPane>
+              </Tabs>
+            </Tabs.TabPane>
+          </Tabs>
+        </Layout.Content>
 
-                      <Modal
-                        title={t('config.createCategoryTitle')}
-                        open={categoryCreateOpen}
-                        onCancel={() => {
-                          setCategoryCreateOpen(false)
-                          setCategoryCreateError('')
-                        }}
-                        onOk={async () => {
-                          const ok = await addCategoryGroup()
-                          if (ok) setCategoryCreateOpen(false)
-                        }}
-                        okText={t('ledger.save')}
-                        cancelText="取消"
-                        style={{ top: '20%' }}
-                        width={700}
-                      >
-                        {categoryCreateError ? (
-                          <Alert
-                            type="error"
-                            message={categoryCreateError}
-                            showIcon
-                            style={{ marginBottom: 12 }}
-                          />
-                        ) : null}
-                        <Form layout="vertical">
-                          <Row gutter={12}>
-                            <Col xs={24} md={12}>
-                              <Form.Item label={t('config.major')}>
-                                <Input
-                                  value={catForm.major}
-                                  placeholder=""
-                                  onChange={(e) => setCatForm({ ...catForm, major: e.target.value })}
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={12}>
-                              <Form.Item label={t('config.minor')}>
-                                <Input
-                                  value={catForm.minor}
-                                  placeholder=""
-                                  onChange={(e) => setCatForm({ ...catForm, minor: e.target.value })}
-                                />
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                          <Row gutter={12} align="middle">
-                            <Col xs={24} md={12}>
-                              <Form.Item label={t('config.scope')}>
-                                <Select value={catForm.scope} onChange={(value) => setCatForm({ ...catForm, scope: value })}>
-                                  <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
-                                  <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
-                                </Select>
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                        </Form>
-                      </Modal>
+        {/* Template Wizard Modal */}
+        <TemplateWizardModal
+          visible={templateWizardOpen}
+          onClose={() => setTemplateWizardOpen(false)}
+          onSuccess={() => {
+            message.success('模板创建成功')
+            setTemplateWizardOpen(false)
+          }}
+        />
 
-                      <Modal
-                        title={t('config.manageCategoryTitle')}
-                        open={categoryManageOpen}
-                        onCancel={() => setCategoryManageOpen(false)}
-                        footer={null}
-                        style={{ top: '20%' }}
-                        width={900}
-                      >
-                        <Space wrap style={{ marginBottom: 12 }}>
-                          <Select
-                            placeholder={t('config.filterMajor')}
-                            value={categoryFilter.major || undefined}
-                            allowClear
-                            style={{ width: 200 }}
-                            onChange={(value) =>
-                              setCategoryFilter({ ...categoryFilter, major: value || '', minor: '' })
-                            }
-                          >
-                            {majorOptions.map((m) => (
-                              <Select.Option key={m} value={m}>
-                                {m}
-                              </Select.Option>
-                            ))}
-                          </Select>
-                          <Select
-                            placeholder={t('config.filterMinor')}
-                            value={categoryFilter.minor || undefined}
-                            allowClear
-                            style={{ width: 200 }}
-                            onChange={(value) => setCategoryFilter({ ...categoryFilter, minor: value || '' })}
-                          >
-                            {categoryFilterMinorOptions.map((c) => (
-                              <Select.Option key={`${c.id}-minor`} value={c.minor}>
-                                {c.minor || c.full_name}
-                              </Select.Option>
-                            ))}
-                          </Select>
-                        </Space>
-                        <Table
-                          rowKey="id"
-                          columns={categoryColumns}
-                          dataSource={categoryFiltered}
-                          pagination={{ pageSize: 8 }}
-                        />
-                      </Modal>
-                      <Modal
-                        title="修改分类"
-                        open={categoryEditOpen}
-                        onCancel={() => setCategoryEditOpen(false)}
-                        onOk={handleCategoryEditSave}
-                        okText="修改"
-                        cancelText="取消"
-                        style={{ top: '20%' }}
-                        width={600}
-                      >
-                        <Form layout="vertical">
-                          <Row gutter={12}>
-                            <Col xs={24} md={12}>
-                              <Form.Item label={t('config.major')}>
-                                <Input
-                                  value={categoryEditForm.major}
-                                  onChange={(e) =>
-                                    setCategoryEditForm({ ...categoryEditForm, major: e.target.value })
-                                  }
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={12}>
-                              <Form.Item label={t('config.minor')}>
-                                <Input
-                                  value={categoryEditForm.minor}
-                                  onChange={(e) =>
-                                    setCategoryEditForm({ ...categoryEditForm, minor: e.target.value })
-                                  }
-                                />
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                          <Row gutter={12}>
-                            <Col xs={24} md={12}>
-                              <Form.Item label={t('config.scope')}>
-                                <Select
-                                  value={categoryEditForm.scope}
-                                  onChange={(value) =>
-                                    setCategoryEditForm({ ...categoryEditForm, scope: value })
-                                  }
-                                >
-                                  <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
-                                  <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
-                                </Select>
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                        </Form>
-                      </Modal>
-                    </Card>
-                  </Col>
-                  <Col span={24}>
-                    <Card title={t('config.rulesTitle')}>
-                      <Row justify="space-between" align="middle">
-                        <Col>
-                          <Text strong>{t('config.rulesTitle')}</Text>
-                        </Col>
-                        <Col>
-                          <Space>
-                            <Button
-                              type="primary"
-                              onClick={() => {
-                                setRuleCreateError('')
-                                setRuleCreateOpen(true)
-                              }}
-                            >
-                              {t('config.createButton')}
-                            </Button>
-                            <Button
-                              onClick={() => {
-                                setRuleManageOpen(true)
-                                loadRules()
-                              }}
-                            >
-                              {t('config.manageButton')}
-                            </Button>
-                          </Space>
-                        </Col>
-                      </Row>
+        {/* Delete Ledger Confirmation Modal */}
+        <Modal
+          title="确认删除"
+          visible={deleteConfirmOpen}
+          onOk={handleDeleteConfirm}
+          onCancel={() => setDeleteConfirmOpen(false)}
+          okText={t('ledger.delete')}
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+          style={{ top: '20%' }}
+        >
+          <p>{t('ledger.deleteConfirm')}</p>
+          <p style={{ color: '#ff4d4f', marginTop: 8 }}>
+            此操作将删除账本及其所有账单数据，并生成备份可供恢复。
+          </p>
+        </Modal>
 
-                      <Modal
-                        title={t('config.createRuleTitle')}
-                        open={ruleCreateOpen}
-                        onCancel={() => {
-                          setRuleCreateOpen(false)
-                          setRuleCreateError('')
-                        }}
-                        onOk={async () => {
-                          const ok = await addRule()
-                          if (ok) setRuleCreateOpen(false)
-                        }}
-                        okText={t('ledger.save')}
-                        cancelText="取消"
-                        style={{ top: '20%' }}
-                        width={900}
-                      >
-                        {ruleCreateError ? (
-                          <Alert
-                            type="error"
-                            message={ruleCreateError}
-                            showIcon
-                            style={{ marginBottom: 12 }}
-                          />
-                        ) : null}
-                        <Form layout="vertical">
-                          <Row gutter={12}>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.keyword')}>
-                                <Input
-                                  value={ruleForm.keyword}
-                                  placeholder=""
-                                  onChange={(e) => setRuleForm({ ...ruleForm, keyword: e.target.value })}
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.major')}>
-                                <Select
-                                  value={ruleForm.major || undefined}
-                                  placeholder={t('config.major')}
-                                  onChange={handleRuleMajorChange}
-                                  allowClear
-                                >
-                                  {ruleMajorOptions.map((m) => (
-                                    <Select.Option key={m} value={m}>
-                                      {m}
-                                    </Select.Option>
-                                  ))}
-                                </Select>
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.minor')}>
-                                <Select
-                                  value={ruleForm.category_id ?? undefined}
-                                  placeholder={t('config.minor')}
-                                  onChange={handleRuleMinorChange}
-                                  disabled={!ruleForm.major}
-                                  allowClear
-                                >
-                                  {ruleMinorOptions.map((c) => (
-                                    <Select.Option key={c.id} value={c.id}>
-                                      {c.minor || c.full_name}
-                                    </Select.Option>
-                                  ))}
-                                </Select>
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                          <Row gutter={12} align="middle">
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.priority')}>
-                                <InputNumber
-                                  min={1}
-                                  value={ruleForm.priority}
-                                  onChange={(value) => setRuleForm({ ...ruleForm, priority: value })}
-                                  style={{ width: '100%' }}
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.scope')}>
-                                <Select value={ruleForm.scope} onChange={(value) => setRuleForm({ ...ruleForm, scope: value })}>
-                                  <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
-                                  <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
-                                </Select>
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                        </Form>
-                      </Modal>
+        {/* Batch Delete Bills Confirmation Modal */}
+        <Modal
+          title="确认删除"
+          visible={batchDeleteOpen}
+          onOk={handleBatchDeleteConfirm}
+          onCancel={() => setBatchDeleteOpen(false)}
+          okText="删除"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+          style={{ top: '20%' }}
+        >
+          <p>确定要删除选中的 {selectedRowKeys.length} 条账单吗？</p>
+          <p style={{ color: '#ff4d4f', marginTop: 8 }}>
+            此操作不可恢复，请谨慎操作。
+          </p>
+        </Modal>
 
-                      <Modal
-                        title={t('config.manageRuleTitle')}
-                        open={ruleManageOpen}
-                        onCancel={() => setRuleManageOpen(false)}
-                        footer={null}
-                        style={{ top: '20%' }}
-                        width={1100}
-                      >
-                        <Space wrap style={{ marginBottom: 12 }}>
-                          <Input
-                            placeholder={t('config.filterKeyword')}
-                            value={ruleFilter.keyword}
-                            onChange={(e) => setRuleFilter({ ...ruleFilter, keyword: e.target.value })}
-                            style={{ width: 200 }}
-                          />
-                          <Select
-                            placeholder={t('config.filterMajor')}
-                            value={ruleFilter.major || undefined}
-                            allowClear
-                            style={{ width: 200 }}
-                            onChange={(value) => setRuleFilter({ ...ruleFilter, major: value || '', minor: '' })}
-                          >
-                            {ruleMajorOptions.map((m) => (
-                              <Select.Option key={`rule-major-${m}`} value={m}>
-                                {m}
-                              </Select.Option>
-                            ))}
-                          </Select>
-                          <Select
-                            placeholder={t('config.filterMinor')}
-                            value={ruleFilter.minor || undefined}
-                            allowClear
-                            style={{ width: 200 }}
-                            onChange={(value) => setRuleFilter({ ...ruleFilter, minor: value || '' })}
-                          >
-                            {ruleFilterMinorOptions.map((c) => (
-                              <Select.Option key={`rule-minor-${c.id}`} value={c.minor}>
-                                {c.minor || c.full_name}
-                              </Select.Option>
-                            ))}
-                          </Select>
-                        </Space>
-                        <Table rowKey="id" columns={rulesColumns} dataSource={rulesFiltered} pagination={{ pageSize: 8 }} />
-                      </Modal>
-                      <Modal
-                        title="修改规则"
-                        open={ruleEditOpen}
-                        onCancel={() => setRuleEditOpen(false)}
-                        onOk={handleRuleEditSave}
-                        okText="修改"
-                        cancelText="取消"
-                        style={{ top: '20%' }}
-                        width={800}
-                      >
-                        <Form layout="vertical">
-                          <Row gutter={12}>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.keyword')}>
-                                <Input
-                                  value={ruleEditForm.keyword}
-                                  onChange={(e) =>
-                                    setRuleEditForm({ ...ruleEditForm, keyword: e.target.value })
-                                  }
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.major')}>
-                                <Select
-                                  value={ruleEditForm.major || undefined}
-                                  placeholder={t('config.major')}
-                                  onChange={handleRuleEditMajorChange}
-                                  allowClear
-                                >
-                                  {ruleMajorOptions.map((m) => (
-                                    <Select.Option key={`rule-edit-major-${m}`} value={m}>
-                                      {m}
-                                    </Select.Option>
-                                  ))}
-                                </Select>
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.minor')}>
-                                <Select
-                                  value={ruleEditForm.category_id ?? undefined}
-                                  placeholder={t('config.minor')}
-                                  onChange={handleRuleEditMinorChange}
-                                  disabled={!ruleEditForm.major}
-                                  allowClear
-                                >
-                                  {ruleEditMinorOptions.map((c) => (
-                                    <Select.Option key={`rule-edit-minor-${c.id}`} value={c.id}>
-                                      {c.minor || c.full_name}
-                                    </Select.Option>
-                                  ))}
-                                </Select>
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                          <Row gutter={12}>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.priority')}>
-                                <InputNumber
-                                  min={1}
-                                  value={ruleEditForm.priority}
-                                  onChange={(value) =>
-                                    setRuleEditForm({ ...ruleEditForm, priority: value })
-                                  }
-                                  style={{ width: '100%' }}
-                                />
-                              </Form.Item>
-                            </Col>
-                            <Col xs={24} md={8}>
-                              <Form.Item label={t('config.scope')}>
-                                <Select
-                                  value={ruleEditForm.scope}
-                                  onChange={(value) => setRuleEditForm({ ...ruleEditForm, scope: value })}
-                                >
-                                  <Select.Option value="current">{t('config.scopeCurrent')}</Select.Option>
-                                  <Select.Option value="global">{t('config.scopeGlobal')}</Select.Option>
-                                </Select>
-                              </Form.Item>
-                            </Col>
-                          </Row>
-                        </Form>
-                      </Modal>
-                    </Card>
-                  </Col>
-                </Row>
-              </Tabs.TabPane>
-            </Tabs>
-          </Tabs.TabPane>
-        </Tabs>
-      </Layout.Content>
-
-      {/* Template Wizard Modal */}
-      <TemplateWizardModal
-        visible={templateWizardOpen}
-        onClose={() => setTemplateWizardOpen(false)}
-        onSuccess={() => {
-          message.success('模板创建成功')
-          setTemplateWizardOpen(false)
-        }}
-      />
-
-      {/* Delete Ledger Confirmation Modal */}
-      <Modal
-        title="确认删除"
-        visible={deleteConfirmOpen}
-        onOk={handleDeleteConfirm}
-        onCancel={() => setDeleteConfirmOpen(false)}
-        okText={t('ledger.delete')}
-        cancelText="取消"
-        okButtonProps={{ danger: true }}
-        style={{ top: '20%' }}
-      >
-        <p>{t('ledger.deleteConfirm')}</p>
-        <p style={{ color: '#ff4d4f', marginTop: 8 }}>
-          此操作将删除账本及其所有账单数据，并生成备份可供恢复。
-        </p>
-      </Modal>
-
-      {/* Batch Delete Bills Confirmation Modal */}
-      <Modal
-        title="确认删除"
-        visible={batchDeleteOpen}
-        onOk={handleBatchDeleteConfirm}
-        onCancel={() => setBatchDeleteOpen(false)}
-        okText="删除"
-        cancelText="取消"
-        okButtonProps={{ danger: true }}
-        style={{ top: '20%' }}
-      >
-        <p>确定要删除选中的 {selectedRowKeys.length} 条账单吗？</p>
-        <p style={{ color: '#ff4d4f', marginTop: 8 }}>
-          此操作不可恢复，请谨慎操作。
-        </p>
-      </Modal>
-
-      {/* Batch Budget Update Confirmation Modal */}
-      <Modal
-        title="确认操作"
-        visible={batchBudgetOpen}
-        onOk={handleBatchBudgetConfirm}
-        onCancel={() => setBatchBudgetOpen(false)}
-        okText="确认"
-        cancelText="取消"
-        style={{ top: '20%' }}
-      >
-        <p>确定要将选中的 {selectedRowKeys.length} 条账单设为{batchBudgetAction ? '计入预算' : '不计入预算'}吗？</p>
-      </Modal>
-    </Layout>
+        {/* Batch Budget Update Confirmation Modal */}
+        <Modal
+          title="确认操作"
+          visible={batchBudgetOpen}
+          onOk={handleBatchBudgetConfirm}
+          onCancel={() => setBatchBudgetOpen(false)}
+          okText="确认"
+          cancelText="取消"
+          style={{ top: '20%' }}
+        >
+          <p>确定要将选中的 {selectedRowKeys.length} 条账单设为{batchBudgetAction ? '计入预算' : '不计入预算'}吗？</p>
+        </Modal>
+      </Layout>
     </ConfigProvider>
   )
 }

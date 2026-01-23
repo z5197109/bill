@@ -54,13 +54,13 @@ function Dashboard({ currentLedgerId, onAddBill, refreshTrigger }) {
         setDashboardData(result.data)
         setLastRefresh(Date.now())
       } else {
-        setError(result.error || '????????')
+        setError(result.error || '加载失败')
       }
     } catch (err) {
       if (requestId !== requestIdRef.current) {
         return
       }
-      setError('??????????????')
+      setError('网络请求失败，请稍后重试')
     } finally {
       if (requestId === requestIdRef.current) {
         setLoading(false)
