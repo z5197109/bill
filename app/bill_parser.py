@@ -32,7 +32,7 @@ except Exception:  # pragma: no cover
 
 # --------------------------- 基础正则/工具 ---------------------------
 
-_MONEY_RE = re.compile(r"[-+]?\d{1,3}(?:,\d{3})*(?:\.\d+)?")
+_MONEY_RE = re.compile(r"[-+]?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?")
 _PHONE_MASK_RE = re.compile(r"\d{2,3}-\d{3}\*+\d{4}|\d{3}\*+\d{4}")
 _DATE_RE = re.compile(r"\b20\d{2}[-/\.]\d{1,2}[-/\.]\d{1,2}\b")
 _TIME_RE = re.compile(r"\b\d{1,2}:\d{2}:\d{2}\b")
@@ -939,9 +939,15 @@ class BillParser:
                 if rule.require_regex is not None:
                     try:
                         if not rule.require_regex.search(s):
-                            continue
+                            if isinstance(rule, AmountRule) and _MONEY_RE.search(s):
+                                pass
+                            else:
+                                continue
                     except Exception:
-                        continue
+                        if isinstance(rule, AmountRule) and _MONEY_RE.search(s):
+                            pass
+                        else:
+                            continue
 
                 text = s
 
