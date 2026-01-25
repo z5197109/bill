@@ -177,5 +177,68 @@
         "round": 2
       }
     }
+  },
+  {
+    "name": "淘宝订单详情",
+    "priority": 90,
+    "match": {
+      "any": [
+        "百亿补贴官方精选>",
+        "退货宝假一赔十极速退款>",
+        "铂金会员88VIP",
+        "88VIP退货包运费>",
+        "退货宝>",
+        "服务保障"
+      ],
+      "min_score": 1
+    },
+    "scope": {},
+    "extract": {
+      "item": {
+        "line": 8,
+        "search_window": 0,
+        "join_next": 0,
+        "clean": true,
+        "skip_datetime_phone": true
+      },
+      "amount": {
+        "line": 21,
+        "search_window": 0,
+        "require_regex": "(¥|￥)\\s*\\d",
+        "money_pick": "max_abs",
+        "abs": true,
+        "round": 2
+      }
+    }
+  },
+  {
+    "name": "旅行 booking预定",
+    "priority": 90,
+    "match": {
+      "any": [
+        "Booking.comB.V.",
+        "HotelatBooking.com",
+        "Booking.com B.V."
+      ],
+      "min_score": 1
+    },
+    "scope": {},
+    "extract": {
+      "item": {
+        "line": 6,
+        "search_window": 0,
+        "join_next": 0,
+        "clean": true,
+        "skip_datetime_phone": true
+      },
+      "amount": {
+        "line": 7,
+        "search_window": 0,
+        "require_regex": "(¥|￥)\\s*\\d",
+        "money_pick": "max_abs",
+        "abs": true,
+        "round": 2
+      }
+    }
   }
 ]

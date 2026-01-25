@@ -298,11 +298,7 @@ class EnhancedDatabaseManager:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_recurring_rule_runs_rule_date ON recurring_rule_runs(rule_id, bill_date)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_ledger_backups_ledger ON ledger_backups(ledger_id)')
         
-        # Initialize category rules from config if table is empty
-        cursor.execute('SELECT COUNT(*) FROM category_rules')
-        if cursor.fetchone()[0] == 0:
-            self._init_category_rules_from_config(cursor)
-        self._ensure_config_rules_global(cursor)
+        # Do not auto-seed category rules from config on startup
 
         # Initialize categories from existing rules or config if table is empty
         cursor.execute('SELECT COUNT(*) FROM categories')
@@ -861,10 +857,6 @@ class EnhancedDatabaseManager:
         for row in cursor.fetchall():
             if row[0]:
                 categories.add(row[0])
-
-        for category in set(config.CATEGORY_RULES.values()):
-            if category:
-                categories.add(category)
 
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         for category_name in categories:

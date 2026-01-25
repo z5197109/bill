@@ -38,7 +38,7 @@ import Dashboard from './Dashboard'
 import { TemplateWizardModal } from './components'
 import './App.css'
 import './Dashboard.css'
-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts'
+import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid } from 'recharts'
 
 const { Title, Text } = Typography
 const { RangePicker } = DatePicker
@@ -228,6 +228,10 @@ const PIE_COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82c
 function App() {
   const [tab, setTab] = useState('dashboard')
   const [pieChartOpen, setPieChartOpen] = useState(false)
+  const [pieChartMode, setPieChartMode] = useState('amount')
+  const [pieChartGroup, setPieChartGroup] = useState('major')
+  const [trendChartOpen, setTrendChartOpen] = useState(false)
+  const [dailyAvgOpen, setDailyAvgOpen] = useState(false)
   const [ledgers, setLedgers] = useState([])
   const [currentLedgerId, setCurrentLedgerId] = useState(null)
   const [ledgerForm, setLedgerForm] = useState({ name: '', monthly_budget: '' })
@@ -252,19 +256,140 @@ function App() {
     start_date: today(),
     end_date: today(),
   })
-  const [analyticsSummary, setAnalyticsSummary] = useState(null)
+  const [analyticsSummary, setAnalyticsSummary] = useState({
+    total_amount: 0,
+    bill_count: 0,
+    day_count: 0,
+    daily_avg: 0,
+    categories: {},
+  })
 
-  const getPieChartData = () => {
+  const getPieChartData = (mode = pieChartMode, group = pieChartGroup) => {
     if (!analyticsSummary || !analyticsSummary.categories) return []
-    return Object.entries(analyticsSummary.categories)
-      .map(([name, data]) => ({ name, value: data.amount }))
-      .sort((a, b) => b.value - a.value)
+    const entries = Object.entries(analyticsSummary.categories).map(([name, data]) => ({
+      name,
+      value: mode === 'count' ? Number(data.count || 0) : Number(data.amount || 0),
+    }))
+    let normalized = entries
+    if (group === 'major') {
+      const grouped = new Map()
+      entries.forEach((entry) => {
+        const major = String(entry.name || '').split('/')[0] || entry.name || '其他'
+        grouped.set(major, (grouped.get(major) || 0) + entry.value)
+      })
+      normalized = Array.from(grouped.entries()).map(([name, value]) => ({ name, value }))
+    }
+    const total = normalized.reduce((sum, item) => sum + item.value, 0)
+    if (total <= 0) return []
+    const majorEntries = []
+    const otherDetails = []
+    normalized.forEach((entry) => {
+      const ratio = entry.value / total
+      if (ratio < 0.02) {
+        otherDetails.push({ name: entry.name, value: entry.value })
+      } else {
+        majorEntries.push(entry)
+      }
+    })
+    if (otherDetails.length) {
+      majorEntries.push({
+        name: '其他',
+        value: otherDetails.reduce((sum, item) => sum + item.value, 0),
+        details: otherDetails.sort((a, b) => b.value - a.value),
+      })
+    }
+    return majorEntries.sort((a, b) => b.value - a.value)
   }
   const [analyticsItems, setAnalyticsItems] = useState([])
   const [analyticsTotal, setAnalyticsTotal] = useState(0)
   const [analyticsPage, setAnalyticsPage] = useState(1)
   const [analyticsSort, setAnalyticsSort] = useState({ field: '', order: '' })
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
+  const [analyticsTrendItems, setAnalyticsTrendItems] = useState([])
+  const [rangeDailyAvg, setRangeDailyAvg] = useState(0)
+  const currentLedger = useMemo(
+    () => ledgers.find((ledger) => ledger.id === currentLedgerId),
+    [ledgers, currentLedgerId],
+  )
+  const monthlyBudget = numberOrZero(currentLedger?.monthly_budget)
+  const dailyBudgetAvg = useMemo(() => {
+    const start = analyticsFilters.start_date ? dayjs(analyticsFilters.start_date, 'YYYY-MM-DD') : null
+    const end = analyticsFilters.end_date ? dayjs(analyticsFilters.end_date, 'YYYY-MM-DD') : null
+    if (!start || !end || monthlyBudget <= 0) return 0
+    if (end.isBefore(start, 'day')) return 0
+    const totalDays = end.diff(start, 'day') + 1
+    if (totalDays <= 0) return 0
+    let cursor = start.startOf('month')
+    const last = end.startOf('month')
+    let totalBudget = 0
+    while (cursor.isSame(last) || cursor.isBefore(last)) {
+      const monthStart = cursor
+      const monthEnd = cursor.endOf('month')
+      const rangeStart = start.isAfter(monthStart) ? start : monthStart
+      const rangeEnd = end.isBefore(monthEnd) ? end : monthEnd
+      const daysInRange = rangeEnd.diff(rangeStart, 'day') + 1
+      if (daysInRange > 0) {
+        totalBudget += monthlyBudget * (daysInRange / monthStart.daysInMonth())
+      }
+      cursor = cursor.add(1, 'month').startOf('month')
+    }
+    return totalBudget / totalDays
+  }, [analyticsFilters.start_date, analyticsFilters.end_date, monthlyBudget])
+  const dailyAvgChartData = useMemo(() => {
+    const rangeAvg = numberOrZero(rangeDailyAvg)
+    const budgetAvg = numberOrZero(dailyBudgetAvg)
+    return [
+      { name: '区间日均', value: rangeAvg },
+      { name: '日均预算', value: budgetAvg },
+    ]
+  }, [rangeDailyAvg, dailyBudgetAvg])
+  const trendChartData = useMemo(() => {
+    if (!analyticsTrendItems.length) return []
+    const start = analyticsFilters.start_date ? dayjs(analyticsFilters.start_date, 'YYYY-MM-DD') : null
+    const end = analyticsFilters.end_date ? dayjs(analyticsFilters.end_date, 'YYYY-MM-DD') : null
+    const days = start && end ? end.diff(start, 'day') + 1 : null
+    const monthSpan = start && end ? end.startOf('month').diff(start.startOf('month'), 'month') : null
+    const yearSpan = start && end ? end.startOf('year').diff(start.startOf('year'), 'year') : null
+    let bucket = 'day'
+    if (yearSpan !== null && yearSpan >= 1) {
+      bucket = 'year'
+    } else if (monthSpan !== null && monthSpan >= 1) {
+      bucket = 'month'
+    }
+
+    const startOfWeekMonday = (d) => {
+      const weekday = d.day()
+      const diffToMonday = (weekday + 6) % 7
+      return d.clone().subtract(diffToMonday, 'day').startOf('day')
+    }
+
+    const totals = new Map()
+    analyticsTrendItems.forEach((item) => {
+      const dateStr = item.bill_date || ''
+      if (!dateStr) return
+      const date = dayjs(dateStr, 'YYYY-MM-DD')
+      let key = dateStr
+      if (bucket === 'week') {
+        key = startOfWeekMonday(date).format('YYYY-MM-DD')
+      } else if (bucket === 'month') {
+        key = date.startOf('month').format('YYYY-MM')
+      } else if (bucket === 'year') {
+        key = date.startOf('year').format('YYYY')
+      }
+      const amount = Number(item.amount || 0)
+      totals.set(key, (totals.get(key) || 0) + amount)
+    })
+
+    const parseKeyToDate = (key) => {
+      if (bucket === 'month') return dayjs(`${key}-01`, 'YYYY-MM-DD')
+      if (bucket === 'year') return dayjs(`${key}-01-01`, 'YYYY-MM-DD')
+      return dayjs(key, 'YYYY-MM-DD')
+    }
+
+    return Array.from(totals.entries())
+      .map(([date, amount]) => ({ date, amount }))
+      .sort((a, b) => parseKeyToDate(a.date).valueOf() - parseKeyToDate(b.date).valueOf())
+  }, [analyticsTrendItems, analyticsFilters.start_date, analyticsFilters.end_date])
   const pageSize = 20
   const [billEditOpen, setBillEditOpen] = useState(false)
   const [billEditForm, setBillEditForm] = useState({
@@ -1667,9 +1792,14 @@ function App() {
       sortState && sortState.field && sortState.order
         ? { sort_by: sortState.field, sort_order: normalizeSortOrder(sortState.order) }
         : {}
-    const params = withLedgerParams({ ...(filtersOverride || analyticsFilters), ...sortParams })
+    const activeFilters = filtersOverride || analyticsFilters
+    const params = withLedgerParams({ ...activeFilters, ...sortParams })
+    const rangeParams = withLedgerParams({
+      ...activeFilters,
+      include_in_budget: true,
+    })
     try {
-      const [summaryRes, billsRes] = await Promise.all([
+      const [summaryRes, billsRes, trendRes, rangeSummaryRes] = await Promise.all([
         fetch(`/api/analytics/summary?${buildQuery(params)}`),
         fetch(
           `/api/bills?${buildQuery({
@@ -1678,6 +1808,14 @@ function App() {
             offset: (page - 1) * pageSize,
           })}`,
         ),
+        fetch(
+          `/api/bills?${buildQuery({
+            ...params,
+            limit: 1000,
+            offset: 0,
+          })}`,
+        ),
+        fetch(`/api/analytics/summary?${buildQuery(rangeParams)}`),
       ])
       const summaryData = await summaryRes.json()
       if (summaryData.success) {
@@ -1687,6 +1825,14 @@ function App() {
       if (billsData.success) {
         setAnalyticsItems(billsData.bills || [])
         setAnalyticsTotal(billsData.total_count || 0)
+      }
+      const trendData = await trendRes.json()
+      if (trendData.success) {
+        setAnalyticsTrendItems(trendData.bills || [])
+      }
+      const rangeSummaryData = await rangeSummaryRes.json()
+      if (rangeSummaryData.success) {
+        setRangeDailyAvg(rangeSummaryData.summary?.daily_avg ?? 0)
       }
     } catch {
       pushToast(t('toasts.refreshFail'), 'error')
@@ -1773,8 +1919,10 @@ function App() {
       start = now.clone().startOf('day')
       end = now.clone().endOf('day')
     } else if (range === 'week') {
-      start = now.clone().startOf('isoWeek')
-      end = now.clone().endOf('isoWeek')
+      const weekday = now.day()
+      const diffToMonday = (weekday + 6) % 7
+      start = now.clone().subtract(diffToMonday, 'day').startOf('day')
+      end = start.clone().add(6, 'day').endOf('day')
     } else if (range === 'month') {
       start = now.clone().startOf('month')
       end = now.clone().endOf('month')
@@ -2577,7 +2725,10 @@ function App() {
                           <Card
                             size="small"
                             hoverable
-                            onClick={() => setPieChartOpen(true)}
+                            onClick={() => {
+                              setPieChartMode('amount')
+                              setPieChartOpen(true)
+                            }}
                             style={{ cursor: 'pointer' }}
                           >
                             <Statistic
@@ -2589,17 +2740,35 @@ function App() {
                           </Card>
                         </Col>
                         <Col xs={12} md={6}>
-                          <Card size="small">
+                          <Card
+                            size="small"
+                            hoverable
+                            onClick={() => {
+                              setPieChartMode('count')
+                              setPieChartOpen(true)
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          >
                             <Statistic title={t('analytics.count')} value={analyticsSummary.bill_count} />
                           </Card>
                         </Col>
                         <Col xs={12} md={6}>
-                          <Card size="small">
+                          <Card
+                            size="small"
+                            hoverable
+                            onClick={() => setTrendChartOpen(true)}
+                            style={{ cursor: 'pointer' }}
+                          >
                             <Statistic title={t('analytics.daysCovered')} value={analyticsSummary.day_count} />
                           </Card>
                         </Col>
                         <Col xs={12} md={6}>
-                          <Card size="small">
+                          <Card
+                            size="small"
+                            hoverable
+                            onClick={() => setDailyAvgOpen(true)}
+                            style={{ cursor: 'pointer' }}
+                          >
                             <Statistic
                               title={t('analytics.dailyAvg')}
                               value={numberOrZero(analyticsSummary.daily_avg)}
@@ -2693,34 +2862,152 @@ function App() {
                 </Card>
 
                 <Modal
-                  title="消费类别占比"
+                  title={pieChartMode === 'count' ? '消费笔数占比' : '消费金额占比'}
                   open={pieChartOpen}
                   onCancel={() => setPieChartOpen(false)}
                   footer={null}
                   width={800}
+                  destroyOnClose
+                  style={{ top: '25%' }}
                 >
-                  <div style={{ width: '100%', height: 400 }}>
-                    <ResponsiveContainer>
-                      <PieChart>
-                        <Pie
-                          data={getPieChartData()}
-                          cx="50%"
-                          cy="50%"
-                          labelLine={false}
-                          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                          outerRadius={150}
-                          fill="#8884d8"
-                          dataKey="value"
-                        >
-                          {getPieChartData().map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <RechartsTooltip formatter={(value) => `${currency}${Number(value).toFixed(2)}`} />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                    <Button
+                      size="small"
+                      onClick={() => setPieChartGroup(pieChartGroup === 'major' ? 'all' : 'major')}
+                    >
+                      {pieChartGroup === 'major' ? '显示全部分类' : '仅显示大类'}
+                    </Button>
                   </div>
+                  {pieChartOpen ? (
+                    <div style={{ width: '100%', height: 400, minHeight: 300 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={getPieChartData()}
+                            cx="50%"
+                            cy="50%"
+                            labelLine={false}
+                            label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                            outerRadius={150}
+                            fill="#8884d8"
+                            dataKey="value"
+                            isAnimationActive
+                            animationDuration={450}
+                          >
+                            {getPieChartData().map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip
+                            content={({ active, payload }) => {
+                              if (!active || !payload || !payload.length) return null
+                              const item = payload[0]?.payload
+                              if (!item) return null
+                              const formatValue =
+                                pieChartMode === 'count'
+                                  ? `${Number(item.value)} 笔`
+                                  : `${currency}${Number(item.value).toFixed(2)}`
+                              return (
+                                <div style={{ background: '#fff', border: '1px solid #f0f0f0', padding: 10, borderRadius: 6 }}>
+                                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{item.name}</div>
+                                  <div>{formatValue}</div>
+                                  {item.details && item.details.length > 0 ? (
+                                    <div style={{ marginTop: 8 }}>
+                                      {item.details.map((detail) => (
+                                        <div key={detail.name} style={{ fontSize: 12, color: '#666' }}>
+                                          {detail.name} · {pieChartMode === 'count'
+                                            ? `${Number(detail.value)} 笔`
+                                            : `${currency}${Number(detail.value).toFixed(2)}`}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              )
+                            }}
+                          />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : null}
+                </Modal>
+
+                <Modal
+                  title="每日消费趋势"
+                  open={trendChartOpen}
+                  onCancel={() => setTrendChartOpen(false)}
+                  footer={null}
+                  width={900}
+                  destroyOnClose
+                  style={{ top: '25%' }}
+                >
+                  {trendChartOpen ? (
+                    <div style={{ width: '100%', height: 420, minHeight: 320 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={trendChartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" />
+                          <YAxis />
+                          <RechartsTooltip formatter={(value) => `${currency}${Number(value).toFixed(2)}`} />
+                          <Line
+                            type="monotone"
+                            dataKey="amount"
+                            stroke="#1890ff"
+                            strokeWidth={2}
+                            dot={false}
+                            isAnimationActive
+                            animationDuration={450}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : null}
+                </Modal>
+
+                <Modal
+                  title="日均消费对比"
+                  open={dailyAvgOpen}
+                  onCancel={() => setDailyAvgOpen(false)}
+                  footer={null}
+                  width={800}
+                  destroyOnClose
+                  style={{ top: '25%' }}
+                >
+                  {monthlyBudget <= 0 ? (
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="未设置月预算，日均预算为 0"
+                      style={{ marginBottom: 12 }}
+                    />
+                  ) : null}
+                  {dailyAvgOpen ? (
+                    <div style={{ width: '100%', height: 360, minHeight: 280 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={dailyAvgChartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={70}
+                            outerRadius={120}
+                            labelLine={false}
+                            label={({ name, value }) => `${name} ${currency}${Number(value).toFixed(2)}`}
+                            dataKey="value"
+                            isAnimationActive
+                            animationDuration={450}
+                          >
+                            {dailyAvgChartData.map((entry, index) => (
+                              <Cell key={`daily-avg-${entry.name}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip formatter={(value) => `${currency}${Number(value).toFixed(2)}`} />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : null}
                 </Modal>
 
                 <Modal
@@ -3898,7 +4185,7 @@ function App() {
         {/* Delete Ledger Confirmation Modal */}
         <Modal
           title="确认删除"
-          visible={deleteConfirmOpen}
+          open={deleteConfirmOpen}
           onOk={handleDeleteConfirm}
           onCancel={() => setDeleteConfirmOpen(false)}
           okText={t('ledger.delete')}
@@ -3915,7 +4202,7 @@ function App() {
         {/* Batch Delete Bills Confirmation Modal */}
         <Modal
           title="确认删除"
-          visible={batchDeleteOpen}
+          open={batchDeleteOpen}
           onOk={handleBatchDeleteConfirm}
           onCancel={() => setBatchDeleteOpen(false)}
           okText="删除"
@@ -3932,7 +4219,7 @@ function App() {
         {/* Batch Budget Update Confirmation Modal */}
         <Modal
           title="确认操作"
-          visible={batchBudgetOpen}
+          open={batchBudgetOpen}
           onOk={handleBatchBudgetConfirm}
           onCancel={() => setBatchBudgetOpen(false)}
           okText="确认"

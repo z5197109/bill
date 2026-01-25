@@ -507,6 +507,13 @@ def get_bills():
         keyword = request.args.get('keyword')
         major = request.args.get('major')
         minor = request.args.get('minor')
+        include_in_budget_raw = request.args.get('include_in_budget')
+        include_in_budget = None
+        if include_in_budget_raw is not None:
+            if str(include_in_budget_raw).lower() in ('1', 'true', 'yes'):
+                include_in_budget = True
+            elif str(include_in_budget_raw).lower() in ('0', 'false', 'no'):
+                include_in_budget = False
         sort_by = request.args.get('sort_by')
         sort_order = request.args.get('sort_order')
         ledger_id = get_ledger_id_from_request()
@@ -820,17 +827,26 @@ def batch_update_budget():
 def get_analytics_summary():
     """Get overall spending summary"""
     try:
-        init_processors()
-        
+        init_processors(need_db=True)
+
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
         keyword = request.args.get('keyword')
         major = request.args.get('major')
         minor = request.args.get('minor')
+        include_in_budget_raw = request.args.get('include_in_budget')
+        include_in_budget = None
+        if include_in_budget_raw is not None:
+            if str(include_in_budget_raw).lower() in ('1', 'true', 'yes'):
+                include_in_budget = True
+            elif str(include_in_budget_raw).lower() in ('0', 'false', 'no'):
+                include_in_budget = False
         
         ledger_id = get_ledger_id_from_request()
         ensure_recurring_bills(ledger_id)
-        summary = enhanced_db.get_spending_summary(start_date, end_date, keyword, major, minor, ledger_id)
+        summary = enhanced_db.get_spending_summary(
+            start_date, end_date, keyword, major, minor, ledger_id, include_in_budget=include_in_budget
+        )
         
         return jsonify({
             'success': True,
@@ -847,7 +863,7 @@ def get_analytics_summary():
 def get_daily_analytics():
     """Get daily spending data"""
     try:
-        init_processors()
+        init_processors(need_db=True)
         
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -874,7 +890,7 @@ def get_daily_analytics():
 def get_weekly_analytics():
     """Get weekly spending data"""
     try:
-        init_processors()
+        init_processors(need_db=True)
         
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -925,7 +941,7 @@ def get_weekly_analytics():
 def get_yearly_analytics():
     """Get yearly spending data"""
     try:
-        init_processors()
+        init_processors(need_db=True)
         
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
@@ -972,7 +988,7 @@ def get_yearly_analytics():
 def get_category_analytics():
     """Get category breakdown"""
     try:
-        init_processors()
+        init_processors(need_db=True)
         
         start_date = request.args.get('start_date')
         end_date = request.args.get('end_date')
