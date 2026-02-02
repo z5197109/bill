@@ -1,0 +1,124 @@
+<!--pages/dashboard/dashboard.wxml-->
+<view class="dashboard-container">
+  <!-- 加载状态 -->
+  <view wx:if="{{loading}}" class="loading-state">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">正在加载看板数据...</text>
+  </view>
+
+  <!-- 错误状态 -->
+  <view wx:elif="{{error}}" class="error-state card">
+    <text class="error-title">数据加载失败</text>
+    <text class="error-message">{{error}}</text>
+    <button class="btn-primary" bindtap="handleRefresh">重试</button>
+  </view>
+
+  <!-- 主内容 -->
+  <block wx:else>
+    <!-- 头部 -->
+    <view class="header">
+      <view class="header-left">
+        <text class="header-title">财务看板</text>
+        <text class="header-subtitle">
+          {{currentMonth}} 数据概览
+          <text wx:if="{{lastRefresh}}" class="refresh-time">• 更新于 {{lastRefresh}}</text>
+        </text>
+      </view>
+      <button class="btn-refresh" bindtap="handleRefresh">
+        <text class="icon-refresh">↻</text>
+        刷新
+      </button>
+    </view>
+
+    <!-- 本月支出卡片 -->
+    <view class="card spending-card">
+      <text class="card-title">本月支出</text>
+      <view class="spending-amount">
+        <text class="currency">¥</text>
+        <text class="amount-value">{{dashboardData.monthly_spending || '0.00'}}</text>
+      </view>
+      <view wx:if="{{dashboardData.non_budget_spending > 0}}" class="non-budget-info">
+        <text class="text-secondary">其中 ¥{{dashboardData.non_budget_spending}} 不计入预算</text>
+      </view>
+    </view>
+
+    <!-- 预算状态卡片 -->
+    <view class="card budget-card">
+      <text class="card-title">预算状态</text>
+      <block wx:if="{{dashboardData.budget_info && dashboardData.budget_info.total_budget > 0}}">
+        <view class="budget-overview">
+          <view class="budget-item">
+            <text class="budget-label">月预算</text>
+            <text class="budget-value">¥{{dashboardData.budget_info.total_budget}}</text>
+          </view>
+          <view class="budget-item">
+            <text class="budget-label">已花费</text>
+            <text class="budget-value">¥{{dashboardData.budget_info.used_amount || 0}}</text>
+          </view>
+          <view class="budget-item">
+            <text class="budget-label">剩余</text>
+            <text class="budget-value {{dashboardData.budget_info.remaining_budget < 0 ? 'over-budget' : ''}}">
+              ¥{{dashboardData.budget_info.remaining_budget || 0}}
+            </text>
+          </view>
+        </view>
+        <!-- 进度条 -->
+        <view class="progress-bar">
+          <view 
+            class="progress-fill" 
+            style="width: {{dashboardData.budget_info.used_percentage > 100 ? 100 : dashboardData.budget_info.used_percentage}}%; background: {{dashboardData.budget_info.used_percentage >= 100 ? '#ff4d4f' : (dashboardData.budget_info.used_percentage >= 80 ? '#faad14' : '#52c41a')}}"
+          ></view>
+        </view>
+        <text class="progress-text">已使用 {{dashboardData.budget_info.used_percentage || 0}}%</text>
+      </block>
+      <view wx:else class="no-budget">
+        <text class="text-secondary">暂未设置预算</text>
+        <text class="text-secondary">前往设置页面配置月预算</text>
+      </view>
+    </view>
+
+    <!-- 分类分布卡片 -->
+    <view class="card category-card">
+      <text class="card-title">本月消费分布</text>
+      <block wx:if="{{dashboardData.top_categories && dashboardData.top_categories.length > 0}}">
+        <!-- 简单饼图可视化 -->
+        <view class="pie-chart-container">
+          <view class="pie-visual">
+            <view wx:for="{{dashboardData.top_categories}}" wx:key="category" 
+              class="pie-segment" 
+              style="--segment-color: {{item.color || '#1890ff'}}; --segment-percent: {{item.percent || 0}}"
+            ></view>
+          </view>
+          <view class="pie-center">
+            <text class="pie-total">¥{{dashboardData.monthly_spending || 0}}</text>
+            <text class="pie-label">总支出</text>
+          </view>
+        </view>
+
+        <!-- 分类图例 -->
+        <view class="category-list">
+          <view wx:for="{{dashboardData.top_categories}}" wx:key="category" class="category-item">
+            <view class="category-info">
+              <view class="category-color" style="background: {{item.color || '#1890ff'}}"></view>
+              <text class="category-name">{{item.category || '未分类'}}</text>
+            </view>
+            <view class="category-stats">
+              <view class="category-bar-wrap">
+                <view class="category-bar" style="width: {{item.percent}}%; background: {{item.color || '#1890ff'}}"></view>
+              </view>
+              <text class="category-amount">¥{{item.amount}}</text>
+            </view>
+          </view>
+        </view>
+      </block>
+      <view wx:else class="empty-state">
+        <text class="text-secondary">暂无消费数据</text>
+      </view>
+    </view>
+  </block>
+
+  <!-- 悬浮添加按钮 -->
+  <view class="fab-button" bindtap="handleAddBill">
+    <text class="fab-icon">+</text>
+  </view>
+</view>

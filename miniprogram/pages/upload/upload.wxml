@@ -1,0 +1,134 @@
+<!--pages/upload/upload.wxml-->
+<view class="upload-container">
+  <!-- 上传区域卡片 -->
+  <view class="card upload-card">
+    <view class="card-header">
+      <text class="card-title">📷 上传账单图片</text>
+    </view>
+    
+    <!-- 图片网格 -->
+    <view class="image-grid">
+      <view wx:for="{{selectedImages}}" wx:key="path" class="image-item">
+        <image src="{{item.path}}" mode="aspectFill" class="preview-image"/>
+        <view class="remove-btn" data-index="{{index}}" bindtap="handleRemoveImage">×</view>
+      </view>
+      
+      <!-- 添加按钮 -->
+      <view class="add-image-btn" bindtap="handleChooseImage">
+        <text class="add-icon">+</text>
+        <text class="add-text">添加</text>
+      </view>
+    </view>
+
+    <!-- 日期和识别控制 -->
+    <view class="control-section">
+      <view class="date-row">
+        <text class="control-label">账单日期</text>
+        <view class="date-controls">
+          <picker mode="date" value="{{billDate}}" bindchange="handleDateChange">
+            <view class="date-picker">
+              <text class="date-value">{{billDate}}</text>
+              <text class="picker-arrow">▼</text>
+            </view>
+          </picker>
+          <view class="btn-today" bindtap="handleSetToday">今天</view>
+        </view>
+      </view>
+
+      <button 
+        class="btn-recognize" 
+        bindtap="handleUpload"
+        disabled="{{uploading || selectedImages.length === 0}}"
+      >
+        <text wx:if="{{uploading}}" class="btn-icon">⏳</text>
+        <text wx:else class="btn-icon">🔍</text>
+        <text>{{uploading ? '识别中...' : '开始识别'}}</text>
+      </button>
+    </view>
+  </view>
+
+  <!-- 识别结果卡片 -->
+  <view wx:if="{{results.length > 0}}" class="card results-card">
+    <view class="results-header">
+      <text class="card-title">📋 识别结果</text>
+      <text class="results-count">{{results.length}}条</text>
+    </view>
+
+    <!-- 结果列表 -->
+    <view class="result-list">
+      <view wx:for="{{results}}" wx:key="id" class="result-card {{item.selected ? 'selected' : ''}}">
+        <!-- 卡片头部：选择框和删除 -->
+        <view class="result-header">
+          <view class="checkbox-wrap" data-index="{{index}}" bindtap="handleToggleSelect">
+            <view class="checkbox {{item.selected ? 'checked' : ''}}">
+              <text wx:if="{{item.selected}}" class="check-icon">✓</text>
+            </view>
+          </view>
+          <view class="result-date-badge">{{item.bill_date}}</view>
+          <view class="delete-action" data-index="{{index}}" bindtap="handleDeleteResult">删除</view>
+        </view>
+
+        <!-- 金额突出显示 -->
+        <view class="amount-display">
+          <text class="currency">¥</text>
+          <input 
+            class="amount-number" 
+            type="digit"
+            value="{{item.amount}}" 
+            placeholder="0.00"
+            data-index="{{index}}"
+            bindinput="handleAmountInput"
+          />
+        </view>
+
+        <!-- 商户和分类 -->
+        <view class="detail-grid">
+          <view class="detail-item">
+            <text class="detail-label">商户</text>
+            <input 
+              class="detail-input" 
+              value="{{item.merchant}}" 
+              placeholder="商户名称"
+              data-index="{{index}}"
+              bindinput="handleMerchantInput"
+            />
+          </view>
+          <view class="detail-item">
+            <text class="detail-label">分类</text>
+            <picker 
+              class="detail-picker"
+              range="{{categories}}" 
+              range-key="full_name"
+              data-index="{{index}}"
+              bindchange="handleCategoryChange"
+            >
+              <view class="picker-display">
+                <text class="picker-text">{{item.category || '选择分类'}}</text>
+                <text class="picker-arrow">▼</text>
+              </view>
+            </picker>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 手动新增浮动按钮 -->
+  <view class="fab-add" bindtap="handleAddManual">
+    <text class="fab-icon">+</text>
+  </view>
+
+  <!-- 底部固定操作栏 -->
+  <view class="footer-bar" wx:if="{{results.length > 0}}">
+    <view class="footer-left" bindtap="handleSelectAll">
+      <view class="checkbox {{allSelected ? 'checked' : ''}}">
+        <text wx:if="{{allSelected}}" class="check-icon">✓</text>
+      </view>
+      <text class="select-text">全选</text>
+    </view>
+    <view class="footer-right">
+      <button class="btn-footer btn-delete" bindtap="handleDeleteSelected" disabled="{{!hasSelectedItems}}">删除</button>
+      <button class="btn-footer btn-save" bindtap="handleSaveAll" disabled="{{saving}}">保存全部</button>
+    </view>
+  </view>
+</view>

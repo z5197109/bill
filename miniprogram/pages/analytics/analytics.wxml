@@ -1,0 +1,136 @@
+<!--pages/analytics/analytics.wxml-->
+<view class="analytics-container">
+  <!-- 筛选区域 -->
+  <view class="card filter-section">
+    <!-- 关键词搜索 -->
+    <view class="filter-row">
+      <input 
+        class="search-input" 
+        placeholder="搜索商户/关键词"
+        value="{{filters.keyword}}"
+        bindinput="handleKeywordInput"
+        bindconfirm="handleSearch"
+      />
+    </view>
+
+    <!-- 分类筛选 -->
+    <view class="filter-row category-row">
+      <picker 
+        range="{{majorOptions}}" 
+        bindchange="handleMajorChange"
+        class="category-picker"
+      >
+        <view class="picker-value">
+          {{filters.major || '全部大类'}}
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
+      <picker 
+        range="{{minorOptions}}" 
+        bindchange="handleMinorChange"
+        class="category-picker"
+      >
+        <view class="picker-value">
+          {{filters.minor || '全部小类'}}
+          <text class="picker-arrow">▼</text>
+        </view>
+      </picker>
+    </view>
+
+    <!-- 日期筛选 -->
+    <view class="filter-row date-row">
+      <picker mode="date" value="{{filters.start_date}}" bindchange="handleStartDateChange">
+        <view class="date-value">{{filters.start_date}}</view>
+      </picker>
+      <text class="date-separator">至</text>
+      <picker mode="date" value="{{filters.end_date}}" bindchange="handleEndDateChange">
+        <view class="date-value">{{filters.end_date}}</view>
+      </picker>
+    </view>
+
+    <!-- 快捷日期 -->
+    <view class="quick-dates">
+      <view class="quick-btn" data-type="today" bindtap="handleQuickDate">当天</view>
+      <view class="quick-btn" data-type="week" bindtap="handleQuickDate">当周</view>
+      <view class="quick-btn" data-type="month" bindtap="handleQuickDate">当月</view>
+      <view class="quick-btn" data-type="year" bindtap="handleQuickDate">当年</view>
+    </view>
+
+    <!-- 操作按钮 -->
+    <view class="filter-actions">
+      <button class="btn-reset" bindtap="handleReset">重置</button>
+      <button class="btn-primary btn-search" bindtap="handleSearch">查询</button>
+    </view>
+  </view>
+
+  <!-- 统计概览 -->
+  <view class="card summary-section">
+    <view class="summary-grid">
+      <view class="summary-item">
+        <text class="summary-value">¥{{summary.total_amount}}</text>
+        <text class="summary-label">总金额</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{summary.bill_count}}</text>
+        <text class="summary-label">笔数</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">{{summary.day_count}}</text>
+        <text class="summary-label">覆盖天数</text>
+      </view>
+      <view class="summary-item">
+        <text class="summary-value">¥{{summary.daily_avg}}</text>
+        <text class="summary-label">日均</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 账单列表 -->
+  <view class="card bill-list-section">
+    <view class="list-header">
+      <text class="card-title">账单明细 ({{totalCount}})</text>
+      <view class="list-actions">
+        <button class="btn-small btn-export" bindtap="handleExport">导出</button>
+        <button class="btn-small btn-primary" bindtap="handleNewBill">+ 新增</button>
+      </view>
+    </view>
+    
+    <block wx:if="{{bills.length > 0}}">
+      <view class="bill-list">
+        <view 
+          wx:for="{{bills}}" 
+          wx:key="id" 
+          class="bill-item"
+          data-bill="{{item}}"
+          bindtap="handleBillTap"
+        >
+          <view class="bill-content">
+            <view class="bill-left">
+              <text class="bill-merchant">{{item.merchant}}</text>
+              <view class="bill-sub">
+                <text class="bill-category">{{item.category}}</text>
+                <text class="bill-dot">·</text>
+                <text class="bill-date">{{item.bill_date}}</text>
+              </view>
+            </view>
+            <view class="bill-right">
+              <text class="bill-amount">¥{{item.amount}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+      
+      <!-- 加载更多 -->
+      <view wx:if="{{loading}}" class="loading-more">
+        <text>加载中...</text>
+      </view>
+      <view wx:elif="{{!hasMore}}" class="no-more">
+        <text>没有更多数据了</text>
+      </view>
+    </block>
+    
+    <view wx:else class="empty-state">
+      <text class="text-secondary">暂无账单数据</text>
+    </view>
+  </view>
+</view>

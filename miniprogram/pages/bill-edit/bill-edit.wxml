@@ -1,0 +1,82 @@
+<!--pages/bill-edit/bill-edit.wxml-->
+<view class="bill-edit-container">
+  <view wx:if="{{loading}}" class="loading-state">
+    <view class="loading-spinner"></view>
+    <text>加载中...</text>
+  </view>
+
+  <block wx:else>
+    <view class="card">
+      <text class="card-title">{{billId ? '编辑账单' : '新增账单'}}</text>
+      
+      <view class="form-item">
+        <text class="form-label">商户/关键词：</text>
+        <input 
+          class="form-input" 
+          value="{{merchant}}" 
+          placeholder="输入商户名称" 
+          bindinput="handleMerchantInput"
+        />
+      </view>
+
+      <view class="form-item">
+        <text class="form-label">金额：</text>
+        <input 
+          class="form-input" 
+          type="digit" 
+          value="{{amount}}" 
+          placeholder="输入金额" 
+          bindinput="handleAmountInput"
+        />
+      </view>
+
+      <view class="form-item">
+        <text class="form-label">日期：</text>
+        <picker mode="date" value="{{date}}" bindchange="handleDateChange">
+          <view class="picker-value">{{date || '选择日期'}}<text class="picker-arrow">▼</text></view>
+        </picker>
+      </view>
+
+      <view class="form-item">
+        <text class="form-label">分类：</text>
+        <picker 
+          range="{{categories}}" 
+          range-key="full_name" 
+          value="{{categoryIndex}}" 
+          bindchange="handleCategoryChange"
+        >
+          <view class="picker-value">
+            {{categories[categoryIndex].full_name || '选择分类'}}
+            <text class="picker-arrow">▼</text>
+          </view>
+        </picker>
+      </view>
+
+      <view class="form-item">
+        <text class="form-label">备注：</text>
+        <input 
+          class="form-input" 
+          value="{{note}}" 
+          placeholder="备注(可选)" 
+          bindinput="handleNoteInput"
+        />
+      </view>
+
+      <view class="form-item">
+        <text class="form-label">计入预算：</text>
+        <switch checked="{{includeInBudget}}" bindchange="handleBudgetSwitch"/>
+      </view>
+    </view>
+
+    <view class="action-buttons">
+      <button class="btn-default btn-large" bindtap="handleCancel">取消</button>
+      <button class="btn-primary btn-large" loading="{{saving}}" bindtap="handleSave">
+        {{billId ? '保存修改' : '创建账单'}}
+      </button>
+    </view>
+
+    <view wx:if="{{billId}}" class="danger-zone">
+      <button class="btn-danger btn-large" bindtap="handleDelete">删除账单</button>
+    </view>
+  </block>
+</view>

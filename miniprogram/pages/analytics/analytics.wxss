@@ -1,0 +1,263 @@
+/* pages/analytics/analytics.wxss */
+
+.analytics-container {
+  padding: 24rpx;
+  padding-bottom: 48rpx;
+}
+
+/* 筛选区域 */
+.filter-section {
+  background: #fff;
+}
+
+.filter-row {
+  margin-bottom: 20rpx;
+}
+
+.search-input {
+  width: 100%;
+  background: #f5f5f5;
+  padding: 20rpx 24rpx;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  box-sizing: border-box;
+}
+
+.category-row {
+  display: flex;
+  gap: 16rpx;
+}
+
+.category-picker {
+  flex: 1;
+}
+
+.picker-value {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f5f5f5;
+  padding: 20rpx 24rpx;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+}
+
+.picker-arrow {
+  font-size: 20rpx;
+  color: #999;
+}
+
+.date-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.date-value {
+  flex: 1;
+  background: #f5f5f5;
+  padding: 20rpx 24rpx;
+  border-radius: 12rpx;
+  font-size: 28rpx;
+  text-align: center;
+}
+
+.date-separator {
+  color: #999;
+  font-size: 28rpx;
+}
+
+.quick-dates {
+  display: flex;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.quick-btn {
+  flex: 1;
+  text-align: center;
+  padding: 16rpx;
+  background: #e6f7ff;
+  color: #1890ff;
+  border-radius: 8rpx;
+  font-size: 26rpx;
+}
+
+.filter-actions {
+  display: flex;
+  gap: 16rpx;
+}
+
+.btn-reset {
+  flex: 1;
+  background: #f5f5f5;
+  color: #666;
+  border: none;
+  border-radius: 12rpx;
+  padding: 20rpx;
+  font-size: 28rpx;
+}
+
+.btn-search {
+  flex: 2;
+}
+
+/* 统计概览 */
+.summary-section {
+  margin-top: 24rpx;
+}
+
+.summary-grid {
+  display: flex;
+  justify-content: space-between;
+}
+
+.summary-item {
+  text-align: center;
+  flex: 1;
+}
+
+.summary-value {
+  display: block;
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #1890ff;
+}
+
+.summary-label {
+  display: block;
+  font-size: 24rpx;
+  color: #999;
+  margin-top: 8rpx;
+}
+
+/* 账单列表 */
+.bill-list-section {
+  margin-top: 24rpx;
+}
+
+.list-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.list-actions {
+  display: flex;
+  gap: 12rpx;
+}
+
+.btn-small {
+  padding: 10rpx 24rpx;
+  font-size: 24rpx;
+  border-radius: 8rpx;
+  line-height: 1.5;
+  width: auto !important;
+  margin: 0 !important;
+  font-weight: 400;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #1890ff, #36cfc9);
+  color: #fff;
+}
+
+.btn-export {
+  background: #f0f0f0;
+  color: #666;
+}
+
+.card-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.bill-list {
+  margin-top: 16rpx;
+}
+
+.bill-item {
+  padding: 24rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.bill-item:last-child {
+  border-bottom: none;
+}
+
+.bill-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bill-left {
+  flex: 1;
+  min-width: 0;
+  padding-right: 24rpx;
+}
+
+.bill-merchant {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 8rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bill-sub {
+  display: flex;
+  align-items: center;
+}
+
+.bill-category {
+  font-size: 24rpx;
+  color: #666;
+  background: #f5f5f5;
+  padding: 2rpx 10rpx;
+  border-radius: 6rpx;
+}
+
+.bill-dot {
+  margin: 0 8rpx;
+  font-size: 24rpx;
+  color: #ccc;
+}
+
+.bill-date {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.bill-right {
+  flex-shrink: 0;
+}
+
+.bill-amount {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #ff4d4f;
+}
+
+/* 加载状态 */
+.loading-more,
+.no-more {
+  text-align: center;
+  padding: 24rpx;
+  color: #999;
+  font-size: 26rpx;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 60rpx 0;
+}

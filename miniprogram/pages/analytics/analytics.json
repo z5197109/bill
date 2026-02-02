@@ -1,0 +1,6 @@
+{
+    "navigationBarTitleText": "消费分析",
+    "enablePullDownRefresh": true,
+    "backgroundTextStyle": "dark",
+    "onReachBottomDistance": 100
+}

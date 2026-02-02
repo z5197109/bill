@@ -1,0 +1,41 @@
+{
+  "pages": [
+    "pages/dashboard/dashboard",
+    "pages/upload/upload",
+    "pages/analytics/analytics",
+    "pages/settings/settings",
+    "pages/bill-edit/bill-edit"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#1890ff",
+    "navigationBarTitleText": "账单助手",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f5f5f5"
+  },
+  "tabBar": {
+    "color": "#999999",
+    "selectedColor": "#1890ff",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/dashboard/dashboard",
+        "text": "看板"
+      },
+      {
+        "pagePath": "pages/upload/upload",
+        "text": "识别"
+      },
+      {
+        "pagePath": "pages/analytics/analytics",
+        "text": "分析"
+      },
+      {
+        "pagePath": "pages/settings/settings",
+        "text": "设置"
+      }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2"
+}

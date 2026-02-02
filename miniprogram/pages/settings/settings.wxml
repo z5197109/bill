@@ -1,0 +1,288 @@
+<!--pages/settings/settings.wxml-->
+<view class="settings-container">
+  <!-- 分区切换 -->
+  <view class="section-tabs">
+    <view class="tab-item {{activeSection === 'ledger' ? 'active' : ''}}" data-section="ledger" bindtap="handleSectionChange">账本</view>
+    <view class="tab-item {{activeSection === 'category' ? 'active' : ''}}" data-section="category" bindtap="handleSectionChange">分类</view>
+    <view class="tab-item {{activeSection === 'rule' ? 'active' : ''}}" data-section="rule" bindtap="handleSectionChange">规则</view>
+    <view class="tab-item {{activeSection === 'recurring' ? 'active' : ''}}" data-section="recurring" bindtap="handleSectionChange">周期</view>
+    <view class="tab-item {{activeSection === 'template' ? 'active' : ''}}" data-section="template" bindtap="handleSectionChange">模板</view>
+  </view>
+
+  <!-- 账本管理 -->
+  <view wx:if="{{activeSection === 'ledger'}}" class="section-content">
+    <view class="card">
+      <text class="card-title">当前账本</text>
+      <view class="form-item">
+        <text class="form-label">选择账本：</text>
+        <picker range="{{ledgers}}" range-key="name" value="{{currentLedgerIndex}}" bindchange="handleLedgerChange">
+          <view class="picker-value">{{ledgerForm.name || '请选择账本'}}<text class="picker-arrow">▼</text></view>
+        </picker>
+      </view>
+      <view class="form-item">
+        <text class="form-label">账本名称：</text>
+        <input class="form-input" value="{{ledgerForm.name}}" placeholder="输入账本名称" bindinput="handleLedgerNameInput"/>
+      </view>
+      <view class="form-item">
+        <text class="form-label">月预算：</text>
+        <input class="form-input" type="digit" value="{{ledgerForm.monthly_budget}}" placeholder="输入月预算金额" bindinput="handleLedgerBudgetInput"/>
+      </view>
+      <view class="form-actions">
+        <button class="btn-primary" bindtap="handleSaveLedger">保存</button>
+        <button class="btn-danger" bindtap="handleDeleteLedger">删除账本</button>
+      </view>
+    </view>
+
+    <view class="card">
+      <text class="card-title">新建账本</text>
+      <block wx:if="{{!showNewLedger}}">
+        <button class="btn-add" bindtap="handleShowNewLedger">+ 新建账本</button>
+      </block>
+      <block wx:else>
+        <view class="form-item">
+          <text class="form-label">名称：</text>
+          <input class="form-input" value="{{newLedgerName}}" placeholder="输入账本名称" bindinput="handleNewLedgerNameInput"/>
+        </view>
+        <view class="form-item">
+          <text class="form-label">月预算：</text>
+          <input class="form-input" type="digit" value="{{newLedgerBudget}}" placeholder="可选" bindinput="handleNewLedgerBudgetInput"/>
+        </view>
+        <view class="form-actions">
+          <button class="btn-default" bindtap="handleCancelNewLedger">取消</button>
+          <button class="btn-primary" bindtap="handleCreateLedger">创建</button>
+        </view>
+      </block>
+    </view>
+
+    <view class="card">
+      <view class="card-header">
+        <text class="card-title">备份管理</text>
+        <button class="btn-small btn-primary" bindtap="loadBackups">查看备份</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 分类管理 -->
+  <view wx:if="{{activeSection === 'category'}}" class="section-content">
+    <view class="card">
+      <view class="card-header">
+        <text class="card-title">分类列表 ({{categories.length}})</text>
+        <button class="btn-small btn-primary" bindtap="handleShowAddCategory">+ 新增</button>
+      </view>
+
+      <!-- 搜索框 -->
+      <input class="search-input" placeholder="搜索分类..." value="{{categorySearch}}" bindinput="handleCategorySearchInput"/>
+
+      <!-- 编辑/新增分类表单 -->
+      <view wx:if="{{showAddCategory || showEditCategory}}" class="add-form">
+        <text class="form-title">{{showEditCategory ? '编辑分类' : '新增分类'}}</text>
+        <view class="form-row">
+          <input class="form-input flex-1" value="{{categoryMajor}}" placeholder="大类" bindinput="handleCategoryMajorInput"/>
+          <text class="form-separator">/</text>
+          <input class="form-input flex-1" value="{{categoryMinor}}" placeholder="小类(可选)" bindinput="handleCategoryMinorInput"/>
+        </view>
+        <view class="form-actions">
+          <button class="btn-small btn-default" bindtap="handleCancelCategory">取消</button>
+          <button class="btn-small btn-primary" bindtap="handleSaveCategory">{{showEditCategory ? '保存' : '添加'}}</button>
+        </view>
+      </view>
+
+      <view class="item-list">
+        <view wx:for="{{filteredCategories}}" wx:key="id" class="list-item">
+          <view class="item-content" data-item="{{item}}" bindtap="handleEditCategory">
+            <text class="item-main">{{item.major}}</text>
+            <text wx:if="{{item.minor}}" class="item-sub">/{{item.minor}}</text>
+          </view>
+          <view class="item-actions">
+            <text class="action-btn primary" data-item="{{item}}" catchtap="handleEditCategory">编辑</text>
+            <text class="action-btn danger" data-id="{{item.id}}" catchtap="handleDeleteCategory">删除</text>
+          </view>
+        </view>
+        <view wx:if="{{filteredCategories.length === 0}}" class="empty-state"><text class="text-secondary">{{categorySearch ? '未找到匹配分类' : '暂无分类，请添加'}}</text></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 规则管理 -->
+  <view wx:if="{{activeSection === 'rule'}}" class="section-content">
+    <view class="card">
+      <view class="card-header">
+        <text class="card-title">分类规则 ({{rules.length}})</text>
+        <button class="btn-small btn-primary" bindtap="handleShowAddRule">+ 新增</button>
+      </view>
+
+      <!-- 搜索框 -->
+      <input class="search-input" placeholder="搜索规则..." value="{{ruleSearch}}" bindinput="handleRuleSearchInput"/>
+
+      <!-- 编辑/新增规则表单 -->
+      <view wx:if="{{showAddRule || showEditRule}}" class="add-form">
+        <text class="form-title">{{showEditRule ? '编辑规则' : '新增规则'}}</text>
+        <view class="form-item">
+          <text class="form-label">关键词：</text>
+          <input class="form-input" value="{{ruleKeyword}}" placeholder="输入关键词" bindinput="handleRuleKeywordInput"/>
+        </view>
+        <view class="form-item">
+          <text class="form-label">分类：</text>
+          <picker range="{{categories}}" range-key="full_name" value="{{ruleCategoryIndex}}" bindchange="handleRuleCategoryChange">
+            <view class="picker-value">{{categories[ruleCategoryIndex].full_name || '选择分类'}}<text class="picker-arrow">▼</text></view>
+          </picker>
+        </view>
+        <view class="form-item">
+          <text class="form-label">优先级：</text>
+          <input class="form-input small" type="number" value="{{rulePriority}}" bindinput="handleRulePriorityInput"/>
+        </view>
+        <view class="form-actions">
+          <button class="btn-small btn-default" bindtap="handleCancelRule">取消</button>
+          <button class="btn-small btn-primary" bindtap="handleSaveRule">{{showEditRule ? '保存' : '添加'}}</button>
+        </view>
+      </view>
+
+      <view class="item-list">
+        <view wx:for="{{filteredRules}}" wx:key="id" class="list-item">
+          <view class="item-content" data-item="{{item}}" bindtap="handleEditRule">
+            <text class="item-keyword">{{item.keyword}}</text>
+            <text class="item-arrow">→</text>
+            <text class="item-category">{{item.category}}</text>
+            <text class="item-priority">[{{item.priority}}]</text>
+          </view>
+          <view class="item-actions">
+            <text class="action-btn primary" data-item="{{item}}" catchtap="handleEditRule">编辑</text>
+            <text class="action-btn danger" data-id="{{item.id}}" catchtap="handleDeleteRule">删除</text>
+          </view>
+        </view>
+        <view wx:if="{{filteredRules.length === 0}}" class="empty-state"><text class="text-secondary">{{ruleSearch ? '未找到匹配规则' : '暂无规则，请添加'}}</text></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 模板管理 -->
+  <view wx:if="{{activeSection === 'template'}}" class="section-content">
+    <view class="card">
+      <view class="card-header">
+        <text class="card-title">账单模板 ({{templates.length}})</text>
+      </view>
+      
+      <view class="template-notice">
+        <text class="notice-text">模板用于识别账单图片，请在网页端创建模板。</text>
+      </view>
+
+      <view class="item-list">
+        <view wx:for="{{templates}}" wx:key="name" class="list-item">
+          <view class="item-content">
+            <text class="item-main">{{item.name}}</text>
+            <text class="item-sub">含{{item.fields.length || 0}}个字段</text>
+          </view>
+          <view class="item-actions">
+            <text class="action-btn danger" data-name="{{item.name}}" catchtap="handleDeleteTemplate">删除</text>
+          </view>
+        </view>
+        <view wx:if="{{templates.length === 0}}" class="empty-state"><text class="text-secondary">暂无模板，请在网页端创建</text></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 周期性账单 -->
+  <view wx:if="{{activeSection === 'recurring'}}" class="section-content">
+    <view class="card">
+      <view class="card-header">
+        <text class="card-title">周期性账单 ({{recurringRules.length}})</text>
+        <button class="btn-small btn-primary" bindtap="handleShowAddRecurring">+ 新增</button>
+      </view>
+
+      <!-- 编辑/新增周期性账单表单 -->
+      <view wx:if="{{showAddRecurring || showEditRecurring}}" class="add-form">
+        <text class="form-title">{{showEditRecurring ? '编辑周期性账单' : '新增周期性账单'}}</text>
+        <view class="form-item">
+          <text class="form-label">关键词：</text>
+          <input class="form-input" value="{{recurringForm.keyword}}" placeholder="商户名称" data-field="keyword" bindinput="handleRecurringInput"/>
+        </view>
+        <view class="form-item">
+          <text class="form-label">金额：</text>
+          <input class="form-input" type="digit" value="{{recurringForm.amount}}" placeholder="金额" data-field="amount" bindinput="handleRecurringInput"/>
+        </view>
+        <view class="form-item">
+          <text class="form-label">分类：</text>
+          <picker range="{{categories}}" range-key="full_name" value="{{recurringForm.categoryIndex}}" bindchange="handleRecurringCategoryChange">
+            <view class="picker-value">{{categories[recurringForm.categoryIndex].full_name || '选择分类'}}<text class="picker-arrow">▼</text></view>
+          </picker>
+        </view>
+        <view class="form-item">
+          <text class="form-label">循环方式：</text>
+          <picker range="{{scheduleTypes}}" range-key="label" value="{{recurringForm.scheduleType === 'weekly' ? 1 : 0}}" bindchange="handleScheduleTypeChange">
+            <view class="picker-value">{{recurringForm.scheduleType === 'weekly' ? '每周' : '每月'}}<text class="picker-arrow">▼</text></view>
+          </picker>
+        </view>
+        <view wx:if="{{recurringForm.scheduleType === 'monthly'}}" class="form-item">
+          <text class="form-label">每月第：</text>
+          <picker range="{{monthDays}}" value="{{recurringForm.dayOfMonth - 1}}" bindchange="handleDayOfMonthChange">
+            <view class="picker-value">{{recurringForm.dayOfMonth}} 日<text class="picker-arrow">▼</text></view>
+          </picker>
+        </view>
+        <view wx:if="{{recurringForm.scheduleType === 'weekly'}}" class="form-item">
+          <text class="form-label">每周：</text>
+          <picker range="{{weekdays}}" value="{{recurringForm.dayOfWeek - 1}}" bindchange="handleDayOfWeekChange">
+            <view class="picker-value">{{weekdays[recurringForm.dayOfWeek - 1]}}<text class="picker-arrow">▼</text></view>
+          </picker>
+        </view>
+        <view class="form-item">
+          <text class="form-label">备注：</text>
+          <input class="form-input" value="{{recurringForm.note}}" placeholder="备注(可选)" data-field="note" bindinput="handleRecurringInput"/>
+        </view>
+        <view class="form-item">
+          <text class="form-label">启用：</text>
+          <switch checked="{{recurringForm.enabled}}" data-field="enabled" bindchange="handleRecurringSwitch"/>
+        </view>
+        <view class="form-item">
+          <text class="form-label">计入预算：</text>
+          <switch checked="{{recurringForm.includeInBudget}}" data-field="includeInBudget" bindchange="handleRecurringSwitch"/>
+        </view>
+        <view class="form-actions">
+          <button class="btn-small btn-default" bindtap="handleCancelRecurring">取消</button>
+          <button class="btn-small btn-primary" bindtap="handleSaveRecurring">{{showEditRecurring ? '保存' : '添加'}}</button>
+        </view>
+      </view>
+
+      <view class="item-list">
+        <view wx:for="{{recurringRules}}" wx:key="id" class="list-item">
+          <view class="item-content" data-item="{{item}}" bindtap="handleEditRecurring">
+            <view class="recurring-main">
+              <text class="item-keyword">{{item.keyword}}</text>
+              <text class="item-amount">¥{{item.amount}}</text>
+            </view>
+            <view class="recurring-meta">
+              <text class="item-category">{{item.category}}</text>
+              <text class="item-schedule">{{item.schedule_type === 'weekly' ? '每周' : '每月'}}{{item.schedule_type === 'weekly' ? weekdays[item.day_of_week - 1] : item.day_of_month + '日'}}</text>
+              <text wx:if="{{!item.enabled}}" class="item-disabled">已禁用</text>
+            </view>
+          </view>
+          <view class="item-actions">
+            <text class="action-btn primary" data-item="{{item}}" catchtap="handleEditRecurring">编辑</text>
+            <text class="action-btn danger" data-id="{{item.id}}" catchtap="handleDeleteRecurring">删除</text>
+          </view>
+        </view>
+        <view wx:if="{{recurringRules.length === 0}}" class="empty-state"><text class="text-secondary">暂无周期性账单</text></view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 备份弹窗 -->
+  <view wx:if="{{showBackups}}" class="modal-overlay" bindtap="handleCloseBackups">
+    <view class="modal-content" catchtap>
+      <text class="modal-title">备份列表</text>
+      <view class="backup-list">
+        <view wx:for="{{backups}}" wx:key="id" class="backup-item">
+          <view class="backup-info">
+            <text class="backup-name">{{item.name}}</text>
+            <text class="backup-date">{{item.created_at}}</text>
+          </view>
+          <view class="backup-actions">
+            <button class="btn-small btn-primary" data-id="{{item.id}}" bindtap="handleRestoreBackup">恢复</button>
+            <button class="btn-small btn-danger" data-id="{{item.id}}" bindtap="handleDeleteBackup">删除</button>
+          </view>
+        </view>
+        <view wx:if="{{backups.length === 0}}" class="empty-state"><text class="text-secondary">暂无备份</text></view>
+      </view>
+      <button class="btn-default" bindtap="handleCloseBackups">关闭</button>
+    </view>
+  </view>
+</view>
