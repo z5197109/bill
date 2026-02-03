@@ -1,0 +1,11 @@
+{
+  "name": "config-service",
+  "version": "1.0.0",
+  "description": "配置管理云函数",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.4.1",
+    "dayjs": "^1.11.19",
+    "uuid": "^9.0.0"
+  }
+}

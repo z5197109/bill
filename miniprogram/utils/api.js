@@ -1,281 +1,468 @@
-// utils/api.js - API 请求封装
+// utils/api.js - CloudBase API 请求封装
 
 const app = getApp()
 
 /**
- * 封装 wx.request 请求
- * @param {Object} options 请求配置
+ * 调用云函数的通用方法
+ * @param {string} functionName 云函数名称
+ * @param {Object} data 请求数据
  * @returns {Promise}
  */
-function request(options) {
+function callCloudFunction(functionName, data = {}) {
     return new Promise((resolve, reject) => {
-        const { url, method = 'GET', data = {}, header = {} } = options
-
         // 如果需要 ledger_id，自动添加
         let requestData = { ...data }
-        if (options.needLedgerId !== false && app.globalData.currentLedgerId) {
-            if (method === 'GET') {
-                requestData.ledger_id = app.globalData.currentLedgerId
-            } else {
-                requestData.ledger_id = requestData.ledger_id || app.globalData.currentLedgerId
-            }
+        if (data.needLedgerId !== false && app.globalData.currentLedgerId) {
+            requestData.ledger_id = requestData.ledger_id || app.globalData.currentLedgerId
         }
 
-        wx.request({
-            url: `${app.globalData.baseUrl}${url}`,
-            method,
-            data: requestData,
-            header: {
-                'Content-Type': 'application/json',
-                ...header
-            },
-            success(res) {
-                if (res.statusCode >= 200 && res.statusCode < 300) {
-                    resolve(res.data)
-                } else {
-                    reject(new Error(res.data.error || `请求失败: ${res.statusCode}`))
-                }
-            },
-            fail(err) {
-                reject(new Error(err.errMsg || '网络请求失败'))
+        wx.cloud.callFunction({
+            name: functionName,
+            data: requestData
+        }).then(res => {
+            if (res.result.success) {
+                resolve(res.result.data)
+            } else {
+                reject(new Error(res.result.error || '请求失败'))
             }
+        }).catch(err => {
+            console.error(`云函数 ${functionName} 调用失败:`, err)
+            reject(new Error(err.errMsg || '网络请求失败'))
         })
     })
 }
 
 /**
- * 上传文件
+ * 上传文件到云存储
  * @param {Object} options 上传配置
  * @returns {Promise}
  */
 function uploadFile(options) {
+    const { filePath, filename, ledgerId } = options
+
     return new Promise((resolve, reject) => {
-        const { url, filePath, name = 'file', formData = {} } = options
+        // 先获取上传签名
+        callCloudFunction('file-service', {
+            action: 'getUploadSignature',
+            filename: filename || 'image.jpg',
+            ledger_id: ledgerId || app.globalData.currentLedgerId
+        }).then(signatureData => {
+            // 使用签名上传文件
+            return wx.cloud.uploadFile({
+                cloudPath: signatureData.file_path,
+                filePath: filePath
+            })
+        }).then(uploadResult => {
+            // 确认上传完成
+            return callCloudFunction('file-service', {
+                action: 'confirmUpload',
+                file_path: uploadResult.fileID,
+                ledger_id: ledgerId || app.globalData.currentLedgerId
+            })
+        }).then(confirmResult => {
+            resolve({
+                fileID: confirmResult.file_path,
+                downloadURL: confirmResult.download_url,
+                ...confirmResult
+            })
+        }).catch(reject)
+    })
+}
 
-        // 添加 ledger_id
-        const data = { ...formData }
-        if (app.globalData.currentLedgerId) {
-            data.ledger_id = app.globalData.currentLedgerId
-        }
+// === 用户相关 API ===
 
-        wx.uploadFile({
-            url: `${app.globalData.baseUrl}${url}`,
-            filePath,
-            name,
-            formData: data,
-            success(res) {
-                if (res.statusCode >= 200 && res.statusCode < 300) {
-                    try {
-                        const data = JSON.parse(res.data)
-                        resolve(data)
-                    } catch (e) {
-                        resolve(res.data)
-                    }
-                } else {
-                    reject(new Error(`上传失败: ${res.statusCode}`))
-                }
-            },
-            fail(err) {
-                reject(new Error(err.errMsg || '上传失败'))
-            }
-        })
+function login(userInfo) {
+    return callCloudFunction('user-service', {
+        action: 'login',
+        userInfo,
+        needLedgerId: false
+    })
+}
+
+function getUserInfo() {
+    return callCloudFunction('user-service', {
+        action: 'getUserInfo',
+        needLedgerId: false
+    })
+}
+
+function updateUserInfo(data) {
+    return callCloudFunction('user-service', {
+        action: 'updateUserInfo',
+        ...data,
+        needLedgerId: false
     })
 }
 
 // === 账本相关 API ===
 
 function getLedgers() {
-    return request({ url: '/api/ledgers', needLedgerId: false })
+    return callCloudFunction('ledger-service', {
+        action: 'list',
+        needLedgerId: false
+    })
 }
 
 function createLedger(data) {
-    return request({ url: '/api/ledgers', method: 'POST', data, needLedgerId: false })
+    return callCloudFunction('ledger-service', {
+        action: 'create',
+        ...data,
+        needLedgerId: false
+    })
 }
 
 function updateLedger(id, data) {
-    return request({ url: `/api/ledgers/${id}`, method: 'PUT', data, needLedgerId: false })
+    return callCloudFunction('ledger-service', {
+        action: 'update',
+        ledger_id: id,
+        ...data,
+        needLedgerId: false
+    })
 }
 
 function deleteLedger(id) {
-    return request({ url: `/api/ledgers/${id}`, method: 'DELETE', needLedgerId: false })
+    return callCloudFunction('ledger-service', {
+        action: 'delete',
+        ledger_id: id,
+        needLedgerId: false
+    })
 }
 
-// === 看板相关 API ===
-
-function getDashboardSummary() {
-    return request({ url: '/api/dashboard/summary' })
+function setDefaultLedger(id) {
+    return callCloudFunction('ledger-service', {
+        action: 'setDefault',
+        ledger_id: id,
+        needLedgerId: false
+    })
 }
 
 // === 账单相关 API ===
 
 function getBills(params = {}) {
-    return request({ url: '/api/bills', data: params })
+    return callCloudFunction('bill-service', {
+        action: 'list',
+        ...params
+    })
 }
 
 function createBill(data) {
-    return request({ url: '/api/bills', method: 'POST', data })
+    return callCloudFunction('bill-service', {
+        action: 'create',
+        ...data
+    })
 }
 
 function updateBill(id, data) {
-    return request({ url: `/api/bills/${id}`, method: 'PUT', data })
+    return callCloudFunction('bill-service', {
+        action: 'update',
+        bill_id: id,
+        ...data
+    })
 }
 
 function deleteBill(id) {
-    return request({ url: `/api/bills/${id}`, method: 'DELETE' })
+    return callCloudFunction('bill-service', {
+        action: 'delete',
+        bill_id: id
+    })
 }
 
 function batchDeleteBills(billIds) {
-    return request({ url: '/api/bills/batch-delete', method: 'POST', data: { bill_ids: billIds } })
+    return callCloudFunction('bill-service', {
+        action: 'batchDelete',
+        bill_ids: billIds
+    })
+}
+
+function batchUpdateBudget(billIds, includeInBudget) {
+    return callCloudFunction('bill-service', {
+        action: 'batchUpdateBudget',
+        bill_ids: billIds,
+        include_in_budget: includeInBudget
+    })
+}
+
+function getBillStats(params = {}) {
+    return callCloudFunction('bill-service', {
+        action: 'stats',
+        ...params
+    })
+}
+
+// === OCR 相关 API ===
+
+function processImageOCR(imageBase64, ledgerId) {
+    return callCloudFunction('ocr-service', {
+        action: 'processImage',
+        image_base64: imageBase64,
+        ledger_id: ledgerId
+    })
+}
+
+function batchProcessImages(images, ledgerId) {
+    return callCloudFunction('ocr-service', {
+        action: 'batchProcess',
+        images: images,
+        ledger_id: ledgerId
+    })
+}
+
+function getOCRStatus() {
+    return callCloudFunction('ocr-service', {
+        action: 'getStatus',
+        needLedgerId: false
+    })
 }
 
 // === 上传识别 API ===
 
 function uploadBillImages(filePaths, billDate) {
-    const promises = filePaths.map(filePath => {
-        return uploadFile({
-            url: '/api/upload',
-            filePath,
-            name: 'files',
-            formData: { bill_date: billDate }
+    const promises = filePaths.map((filePath, index) => {
+        return new Promise((resolve, reject) => {
+            // 将图片转换为 base64
+            wx.getFileSystemManager().readFile({
+                filePath: filePath,
+                encoding: 'base64',
+                success: (res) => {
+                    // 调用 OCR 识别
+                    processImageOCR(res.data, app.globalData.currentLedgerId)
+                        .then(ocrResult => {
+                            resolve({
+                                index: index,
+                                filePath: filePath,
+                                ocrResult: ocrResult,
+                                parsedData: ocrResult.parsed_data
+                            })
+                        })
+                        .catch(reject)
+                },
+                fail: reject
+            })
         })
     })
     return Promise.all(promises)
 }
 
 function saveBills(bills) {
-    return request({ url: '/api/save', method: 'POST', data: { bills } })
+    const promises = bills.map(bill => createBill(bill))
+    return Promise.all(promises)
 }
 
 // === 分类相关 API ===
 
+function getCategories() {
+    return callCloudFunction('config-service', {
+        action: 'getCategories',
+        needLedgerId: false
+    })
+}
+
+// 兼容旧版本的方法名
 function getCategoryGroups() {
-    return request({ url: '/api/config/category-groups' })
+    return getCategories()
 }
 
-function addCategoryGroup(data) {
-    return request({ url: '/api/config/category-groups', method: 'POST', data })
+function createCategory(data) {
+    return callCloudFunction('config-service', {
+        action: 'createCategory',
+        ...data,
+        needLedgerId: false
+    })
 }
 
-function updateCategoryGroup(id, data) {
-    return request({ url: `/api/config/category-groups/${id}`, method: 'PUT', data })
+function updateCategory(id, data) {
+    return callCloudFunction('config-service', {
+        action: 'updateCategory',
+        category_id: id,
+        ...data,
+        needLedgerId: false
+    })
 }
 
-function deleteCategoryGroup(id) {
-    return request({ url: `/api/config/category-groups/${id}`, method: 'DELETE' })
+function deleteCategory(id) {
+    return callCloudFunction('config-service', {
+        action: 'deleteCategory',
+        category_id: id,
+        needLedgerId: false
+    })
 }
 
 // === 规则相关 API ===
 
 function getCategoryRules() {
-    return request({ url: '/api/config/categories' })
+    return callCloudFunction('config-service', {
+        action: 'getCategoryRules',
+        needLedgerId: false
+    })
 }
 
-function addCategoryRule(data) {
-    return request({ url: '/api/config/categories', method: 'POST', data })
+function createCategoryRule(data) {
+    return callCloudFunction('config-service', {
+        action: 'createCategoryRule',
+        ...data,
+        needLedgerId: false
+    })
 }
 
 function updateCategoryRule(id, data) {
-    return request({ url: `/api/config/categories/${id}`, method: 'PUT', data })
+    return callCloudFunction('config-service', {
+        action: 'updateCategoryRule',
+        rule_id: id,
+        ...data,
+        needLedgerId: false
+    })
 }
 
 function deleteCategoryRule(id) {
-    return request({ url: `/api/config/categories/${id}`, method: 'DELETE' })
+    return callCloudFunction('config-service', {
+        action: 'deleteCategoryRule',
+        rule_id: id,
+        needLedgerId: false
+    })
 }
 
-// === 周期性账单 API ===
-
-function getRecurringRules() {
-    return request({ url: '/api/recurring-rules' })
+function applyCategoryRules(merchantName) {
+    return callCloudFunction('config-service', {
+        action: 'applyCategoryRules',
+        merchant_name: merchantName,
+        needLedgerId: false
+    })
 }
 
-function addRecurringRule(data) {
-    return request({ url: '/api/recurring-rules', method: 'POST', data })
-}
-
-function updateRecurringRule(id, data) {
-    return request({ url: `/api/recurring-rules/${id}`, method: 'PUT', data })
-}
-
-function deleteRecurringRule(id) {
-    return request({ url: `/api/recurring-rules/${id}`, method: 'DELETE' })
+function initDefaultConfig() {
+    return callCloudFunction('config-service', {
+        action: 'initDefaultConfig',
+        needLedgerId: false
+    })
 }
 
 // === 统计分析 API ===
 
 function getAnalyticsSummary(params = {}) {
-    return request({ url: '/api/analytics/summary', data: params })
-}
-// === 备份 API ===
-
-function getLedgerBackups() {
-    return request({ url: '/api/ledger-backups' })
+    return callCloudFunction('analytics-service', {
+        action: 'summary',
+        ...params
+    })
 }
 
-function restoreLedgerBackup(backupId) {
-    return request({ url: `/api/ledger-backups/${backupId}/restore`, method: 'POST' })
+function getMonthlyStats(params = {}) {
+    return callCloudFunction('analytics-service', {
+        action: 'monthlyStats',
+        ...params
+    })
 }
 
-function deleteLedgerBackup(backupId) {
-    return request({ url: `/api/ledger-backups/${backupId}`, method: 'DELETE' })
+function getYearlyStats(params = {}) {
+    return callCloudFunction('analytics-service', {
+        action: 'yearlyStats',
+        ...params
+    })
 }
 
-// === 导出账单 ===
+function getCategoryTrends(params = {}) {
+    return callCloudFunction('analytics-service', {
+        action: 'categoryTrends',
+        ...params
+    })
+}
 
-function exportBills(params = {}) {
-    return request({ url: '/api/bills/export', data: params })
+function getSpendingRanking(params = {}) {
+    return callCloudFunction('analytics-service', {
+        action: 'spendingRanking',
+        ...params
+    })
+}
+
+function exportData(params = {}) {
+    return callCloudFunction('analytics-service', {
+        action: 'export',
+        ...params
+    })
+}
+
+// === 文件相关 API ===
+
+function getStorageUsage() {
+    return callCloudFunction('file-service', {
+        action: 'getStorageUsage',
+        needLedgerId: false
+    })
+}
+
+function deleteFile(filePath) {
+    return callCloudFunction('file-service', {
+        action: 'delete',
+        file_path: filePath,
+        needLedgerId: false
+    })
+}
+
+function batchDeleteFiles(filePaths) {
+    return callCloudFunction('file-service', {
+        action: 'batchDelete',
+        file_paths: filePaths,
+        needLedgerId: false
+    })
+}
+
+function getFileDownloadUrl(filePath) {
+    return callCloudFunction('file-service', {
+        action: 'getDownloadUrl',
+        file_path: filePath,
+        needLedgerId: false
+    })
 }
 
 module.exports = {
-    request,
+    callCloudFunction,
     uploadFile,
+    // 用户
+    login,
+    getUserInfo,
+    updateUserInfo,
     // 账本
     getLedgers,
     createLedger,
     updateLedger,
     deleteLedger,
-    // 备份
-    getLedgerBackups,
-    restoreLedgerBackup,
-    deleteLedgerBackup,
-    // 看板
-    getDashboardSummary,
+    setDefaultLedger,
     // 账单
     getBills,
     createBill,
     updateBill,
     deleteBill,
     batchDeleteBills,
+    batchUpdateBudget,
+    getBillStats,
     uploadBillImages,
     saveBills,
-    exportBills,
+    // OCR
+    processImageOCR,
+    batchProcessImages,
+    getOCRStatus,
     // 分类
-    getCategoryGroups,
-    addCategoryGroup,
-    updateCategoryGroup,
-    deleteCategoryGroup,
+    getCategories,
+    getCategoryGroups, // 兼容旧版本
+    createCategory,
+    updateCategory,
+    deleteCategory,
     // 规则
     getCategoryRules,
-    addCategoryRule,
+    createCategoryRule,
     updateCategoryRule,
     deleteCategoryRule,
-    // 周期性
-    getRecurringRules,
-    addRecurringRule,
-    updateRecurringRule,
-    deleteRecurringRule,
+    applyCategoryRules,
+    initDefaultConfig,
     // 统计
     getAnalyticsSummary,
-    // 模板
-    getTemplates,
-    deleteTemplate
-}
-
-// === 模板 API ===
-
-function getTemplates() {
-    return request({ url: '/api/templates' })
-}
-
-function deleteTemplate(name) {
-    return request({ url: `/api/templates/${encodeURIComponent(name)}`, method: 'DELETE' })
+    getMonthlyStats,
+    getYearlyStats,
+    getCategoryTrends,
+    getSpendingRanking,
+    exportData,
+    // 文件
+    getStorageUsage,
+    deleteFile,
+    batchDeleteFiles,
+    getFileDownloadUrl
 }

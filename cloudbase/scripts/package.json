@@ -1,0 +1,16 @@
+{
+  "name": "cloudbase-scripts",
+  "version": "1.0.0",
+  "description": "CloudBase 数据库管理脚本",
+  "scripts": {
+    "init-db": "node init-database.js init",
+    "init-db-full": "node init-database.js full",
+    "db-stats": "node init-database.js stats",
+    "migrate": "node migrate-data.js",
+    "clean-db": "NODE_ENV=development node init-database.js clean"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.4.1",
+    "sqlite3": "^5.1.6"
+  }
+}

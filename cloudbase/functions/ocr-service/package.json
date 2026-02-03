@@ -1,0 +1,11 @@
+{
+  "name": "ocr-service",
+  "version": "1.0.0",
+  "description": "OCR 识别云函数",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.4.1",
+    "dayjs": "^1.11.19",
+    "uuid": "^9.0.0"
+  }
+}

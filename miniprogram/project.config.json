@@ -52,5 +52,7 @@
   "projectname": "躺帐",
   "condition": {},
   "simulatorPluginLibVersion": {},
-  "editorSetting": {}
+  "editorSetting": {},
+  "cloudfunctionRoot": "cloudbase/functions/",
+  "cloudbaseRoot": "cloudbase/"
 }

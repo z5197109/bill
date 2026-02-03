@@ -1,0 +1,41 @@
+{
+  "envId": "dev-4g40wh23d397fbae",
+  "functions": [
+    {
+      "name": "user-service",
+      "timeout": 15,
+      "runtime": "Nodejs18.15",
+      "installDependency": false
+    },
+    {
+      "name": "ledger-service", 
+      "timeout": 15,
+      "runtime": "Nodejs18.15",
+      "installDependency": false
+    },
+    {
+      "name": "bill-service",
+      "timeout": 15,
+      "runtime": "Nodejs18.15", 
+      "installDependency": false
+    },
+    {
+      "name": "ocr-service",
+      "timeout": 30,
+      "runtime": "Nodejs18.15",
+      "installDependency": false
+    },
+    {
+      "name": "analytics-service",
+      "timeout": 15,
+      "runtime": "Nodejs18.15",
+      "installDependency": false
+    },
+    {
+      "name": "config-service",
+      "timeout": 15,
+      "runtime": "Nodejs18.15",
+      "installDependency": false
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "bill-assistant-cloudbase",
+  "version": "1.0.0",
+  "description": "账单助手小程序 CloudBase 后端",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "node -e \"console.log('请使用 deploy.bat 或 deploy.sh 进行部署')\"",
+    "deploy:dev": "deploy.bat dev all",
+    "deploy:prod": "deploy.bat prod all",
+    "deploy:functions": "deploy.bat dev functions",
+    "init:db": "cd scripts && npm run init-db-full",
+    "migrate": "cd scripts && npm run migrate",
+    "stats": "cd scripts && npm run db-stats",
+    "dev": "tcb functions:invoke user-service --params '{\"action\":\"test\"}'",
+    "logs": "tcb functions:log user-service"
+  },
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.8.1",
+    "dayjs": "^1.11.19",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@cloudbase/cli": "^1.8.1"
+  },
+  "keywords": ["cloudbase", "miniprogram", "bill-assistant", "serverless"],
+  "author": "Bill Assistant Team",
+  "license": "MIT"
+}

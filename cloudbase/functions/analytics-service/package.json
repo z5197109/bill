@@ -1,0 +1,10 @@
+{
+  "name": "analytics-service",
+  "version": "1.0.0",
+  "description": "分析统计云函数",
+  "main": "index.js",
+  "dependencies": {
+    "@cloudbase/node-sdk": "^2.4.1",
+    "dayjs": "^1.11.19"
+  }
+}
