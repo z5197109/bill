@@ -1,9 +1,9 @@
-// 账单管理云函数
+// 账单管理云函�?
 const cloud = require('@cloudbase/node-sdk');
 const dayjs = require('dayjs');
 const { successResponse, errorResponse, asyncHandler, verifyUser, verifyResourceAccess, validate, paginate, getWXContext } = require('./shared/utils');
 
-// 初始化云开发
+// 初始化云开�?
 const app = cloud.init({
   env: cloud.SYMBOL_CURRENT_ENV
 });
@@ -34,7 +34,7 @@ const listBills = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
   
@@ -44,19 +44,19 @@ const listBills = async (event) => {
     ledger_id
   };
   
-  // 日期范围筛选
+  // 日期范围筛�?
   if (start_date || end_date) {
     where.bill_date = {};
     if (start_date) where.bill_date[_.gte] = new Date(start_date);
     if (end_date) where.bill_date[_.lte] = new Date(end_date);
   }
   
-  // 分类筛选
+  // 分类筛�?
   if (category) {
     where.category = category;
   }
   
-  // 关键词搜索
+  // 关键词搜�?
   if (keyword) {
     where[_.or] = [
       { merchant: db.RegExp({ regexp: keyword, options: 'i' }) },
@@ -94,6 +94,29 @@ const listBills = async (event) => {
 };
 
 /**
+ * ??????
+ */
+const getBill = async (event) => {
+  const { OPENID } = getWXContext(cloud);
+  const user = await verifyUser(app, OPENID);
+  const data = event.data || event;
+  const { bill_id } = data;
+
+  validate.required(bill_id, '??ID');
+
+  const billResult = await db.collection('bills').doc(bill_id).get();
+  if (!billResult.data.length) {
+    throw new Error('?????');
+  }
+
+  const bill = billResult.data[0];
+  verifyResourceAccess(bill, user._id);
+
+  return successResponse({ bill });
+};
+
+
+/**
  * 创建账单
  */
 const createBill = async (event) => {
@@ -122,14 +145,14 @@ const createBill = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
   
   // 验证日期
   const billDate = bill_date ? new Date(bill_date) : new Date();
   if (isNaN(billDate.getTime())) {
-    throw new Error('账单日期格式不正确');
+    throw new Error('账单日期格式不正�?);
   }
   
   const billData = {
@@ -155,7 +178,7 @@ const createBill = async (event) => {
   });
   
   return successResponse({
-    id: result._id,
+    id: (result.id || result._id),
     ...billData
   });
 };
@@ -170,10 +193,10 @@ const updateBill = async (event) => {
   
   validate.required(bill_id, '账单ID');
   
-  // 获取账单信息并验证权限
+  // 获取账单信息并验证权�?
   const billResult = await db.collection('bills').doc(bill_id).get();
   if (!billResult.data.length) {
-    throw new Error('账单不存在');
+    throw new Error('账单不存�?);
   }
   
   const bill = billResult.data[0];
@@ -184,7 +207,7 @@ const updateBill = async (event) => {
     updated_at: new Date()
   };
   
-  // 验证并设置更新字段
+  // 验证并设置更新字�?
   if (updateFields.merchant !== undefined) {
     validate.required(updateFields.merchant, '商户名称');
     updateData.merchant = updateFields.merchant.trim();
@@ -206,7 +229,7 @@ const updateBill = async (event) => {
   if (updateFields.bill_date !== undefined) {
     const billDate = new Date(updateFields.bill_date);
     if (isNaN(billDate.getTime())) {
-      throw new Error('账单日期格式不正确');
+      throw new Error('账单日期格式不正�?);
     }
     updateData.bill_date = billDate;
   }
@@ -232,10 +255,10 @@ const deleteBill = async (event) => {
   
   validate.required(bill_id, '账单ID');
   
-  // 获取账单信息并验证权限
+  // 获取账单信息并验证权�?
   const billResult = await db.collection('bills').doc(bill_id).get();
   if (!billResult.data.length) {
-    throw new Error('账单不存在');
+    throw new Error('账单不存�?);
   }
   
   verifyResourceAccess(billResult.data[0], user._id);
@@ -266,7 +289,7 @@ const batchDeleteBills = async (event) => {
     .get();
     
   if (billsResult.data.length !== bill_ids.length) {
-    throw new Error('部分账单不存在或无权限访问');
+    throw new Error('部分账单不存在或无权限访�?);
   }
   
   // 批量删除
@@ -281,7 +304,7 @@ const batchDeleteBills = async (event) => {
 };
 
 /**
- * 批量更新账单预算状态
+ * 批量更新账单预算状�?
  */
 const batchUpdateBudget = async (event) => {
   const { OPENID } = getWXContext(cloud);
@@ -301,7 +324,7 @@ const batchUpdateBudget = async (event) => {
     .get();
     
   if (billsResult.data.length !== bill_ids.length) {
-    throw new Error('部分账单不存在或无权限访问');
+    throw new Error('部分账单不存在或无权限访�?);
   }
   
   // 批量更新
@@ -335,7 +358,7 @@ const getBillStats = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
   
@@ -364,7 +387,7 @@ const getBillStats = async (event) => {
   // 分类统计
   const categoryStats = {};
   bills.forEach(bill => {
-    const category = bill.category || '未分类';
+    const category = bill.category || '未分�?;
     if (!categoryStats[category]) {
       categoryStats[category] = { amount: 0, count: 0 };
     }
@@ -385,14 +408,18 @@ const getBillStats = async (event) => {
 };
 
 /**
- * 主函数入口
+ * 主函数入�?
  */
 exports.main = asyncHandler(async (event, context) => {
+  cloud.__context = context;
+  cloud.__event = event;
   const { action } = event;
   
   switch (action) {
     case 'list':
       return await listBills(event);
+    case 'get':
+      return await getBill(event);
     case 'create':
       return await createBill(event);
     case 'update':

@@ -20,8 +20,11 @@ Page({
         includeInBudget: true
     },
 
-    onLoad(options) {
-        if (options.id) {
+    async onLoad(options) {
+        if (!await util.ensureLedger(app)) {
+            return
+        }
+        if (options && options.id) {
             this.setData({ billId: options.id })
             this.loadCategories()
             this.loadBill(options.id)

@@ -23,7 +23,10 @@ Page({
         })
     },
 
-    onShow() {
+    async onShow() {
+        if (!await util.ensureLedger(app)) {
+            return
+        }
         this.loadCategories()
     },
 

@@ -32,6 +32,22 @@ const errorResponse = (error, code = 'UNKNOWN_ERROR') => {
 /**
  * 验证用户权限中间件
  */
+const resolveAddId = (result) => {
+  if (!result) return undefined;
+  if (result._id) return result._id;
+  if (result.id) return result.id;
+  if (Array.isArray(result.ids) && result.ids.length > 0) return result.ids[0];
+  return undefined;
+};
+
+const normalizeDocId = (doc, fallbackId) => {
+  if (!doc) return doc;
+  const id = doc._id || doc.id || fallbackId;
+  if (id && !doc._id) doc._id = id;
+  if (id && !doc.id) doc.id = id;
+  return doc;
+};
+
 const verifyUser = async (cloud, openid) => {
   if (!openid) {
     throw new Error('用户未登录');
@@ -61,13 +77,15 @@ const verifyUser = async (cloud, openid) => {
       data: newUser
     });
 
-    return {
+    const createdId = resolveAddId(createResult);
+    return normalizeDocId({
       ...newUser,
-      _id: createResult._id
-    };
+      _id: createdId,
+      id: createdId
+    }, createdId);
   }
 
-  return userResult.data[0];
+  return normalizeDocId(userResult.data[0]);
 };
 
 /**
@@ -75,15 +93,44 @@ const verifyUser = async (cloud, openid) => {
  */
 const getWXContext = (cloud) => {
   try {
-    return cloud.getWXContext();
+    if (cloud && typeof cloud.getWXContext === 'function') {
+      const ctx = cloud.getWXContext();
+      if (ctx && ctx.OPENID) {
+        return ctx;
+      }
+    }
   } catch (error) {
-    // 测试环境返回模拟数据
-    return {
-      OPENID: 'test-openid-123',
-      APPID: 'test-appid',
-      UNIONID: 'test-unionid'
-    };
+    // ignore and fallback
   }
+  const ctxFromCloud = cloud && cloud.__context;
+  if (ctxFromCloud && ctxFromCloud.OPENID) {
+    return ctxFromCloud;
+  }
+  if (ctxFromCloud && ctxFromCloud.wxContext && ctxFromCloud.wxContext.OPENID) {
+    return ctxFromCloud.wxContext;
+  }
+  const event = cloud && cloud.__event;
+  if (event) {
+    const eventCtx = event.userInfo || event.wxContext || event.WXContext || event.user;
+    const openid =
+      (eventCtx && (eventCtx.OPENID || eventCtx.openId || eventCtx.openid)) ||
+      event.OPENID ||
+      event.openId ||
+      event.openid;
+    if (openid) {
+      return {
+        OPENID: openid,
+        APPID: (eventCtx && (eventCtx.APPID || eventCtx.appId || eventCtx.appid)) || event.APPID,
+        UNIONID: (eventCtx && (eventCtx.UNIONID || eventCtx.unionId || eventCtx.unionid)) || event.UNIONID
+      };
+    }
+  }
+  // ????????????????
+  return {
+    OPENID: 'test-openid-123',
+    APPID: 'test-appid',
+    UNIONID: 'test-unionid'
+  };
 };
 
 /**

@@ -1,9 +1,9 @@
-// OCR 识别云函数
+// OCR 识别云函�?
 const cloud = require('@cloudbase/node-sdk');
 const { successResponse, errorResponse, asyncHandler, verifyUser, validate, getWXContext } = require('./shared/utils');
 const config = require('./shared/config');
 
-// 初始化云开发
+// 初始化云开�?
 const app = cloud.init({
   env: cloud.SYMBOL_CURRENT_ENV
 });
@@ -24,11 +24,11 @@ const processImageOCR = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   
   if (ledgerResult.data[0].user_id !== user._id) {
-    throw new Error('无权访问该账本');
+    throw new Error('无权访问该账�?);
   }
   
   try {
@@ -46,7 +46,7 @@ const processImageOCR = async (event) => {
       parsed_data: {
         ...parsedResult,
         category: categoryResult.category || '',
-        suggested_category: categoryResult.category || '未分类'
+        suggested_category: categoryResult.category || '未分�?
       },
       confidence: ocrResult.confidence || 0.8
     });
@@ -61,33 +61,33 @@ const processImageOCR = async (event) => {
  * 执行 OCR 识别
  */
 async function performOCR(imageBase64) {
-  // 这里可以集成腾讯云 OCR API 或其他 OCR 服务
-  // 为了演示，我们返回一个模拟结果
+  // 这里可以集成腾讯�?OCR API 或其�?OCR 服务
+  // 为了演示，我们返回一个模拟结�?
   
   if (config.ocr.provider === 'tencent') {
     return await callTencentOCR(imageBase64);
   } else {
-    // 使用自定义 OCR 逻辑或第三方服务
+    // 使用自定�?OCR 逻辑或第三方服务
     return await callCustomOCR(imageBase64);
   }
 }
 
 /**
- * 调用腾讯云 OCR API
+ * 调用腾讯�?OCR API
  */
 async function callTencentOCR(imageBase64) {
   // 这里需要集成腾讯云 OCR SDK
   // 由于需要配置密钥等，这里提供一个基础框架
   
   try {
-    // 腾讯云 OCR API 调用示例
+    // 腾讯�?OCR API 调用示例
     // const tencentcloud = require("tencentcloud-sdk-nodejs");
     // const OcrClient = tencentcloud.ocr.v20181119.Client;
     
     // 模拟返回结果
     return {
       text_detections: [
-        { detected_text: "麦当劳", confidence: 0.95 },
+        { detected_text: "麦当�?, confidence: 0.95 },
         { detected_text: "¥25.50", confidence: 0.90 },
         { detected_text: "2024-02-03", confidence: 0.85 }
       ],
@@ -95,12 +95,12 @@ async function callTencentOCR(imageBase64) {
       raw_response: "模拟腾讯云OCR响应"
     };
   } catch (error) {
-    throw new Error('腾讯云 OCR 调用失败: ' + error.message);
+    throw new Error('腾讯�?OCR 调用失败: ' + error.message);
   }
 }
 
 /**
- * 调用自定义 OCR 服务
+ * 调用自定�?OCR 服务
  */
 async function callCustomOCR(imageBase64) {
   // 这里可以调用其他 OCR 服务或自建的 OCR API
@@ -143,7 +143,7 @@ function parseOCRResult(ocrResult) {
   let amount = 0;
   const amountPatterns = [
     /¥?(\d+\.?\d*)/,
-    /(\d+\.?\d*)\s*元/,
+    /(\d+\.?\d*)\s*�?,
     /(\d+\.?\d*)/
   ];
   
@@ -153,7 +153,7 @@ function parseOCRResult(ocrResult) {
       const match = text.match(pattern);
       if (match) {
         const parsedAmount = parseFloat(match[1]);
-        if (parsedAmount > 0 && parsedAmount < 10000) { // 合理的金额范围
+        if (parsedAmount > 0 && parsedAmount < 10000) { // 合理的金额范�?
           amount = parsedAmount;
           break;
         }
@@ -167,7 +167,7 @@ function parseOCRResult(ocrResult) {
   const datePatterns = [
     /(\d{4}[-\/]\d{1,2}[-\/]\d{1,2})/,
     /(\d{1,2}[-\/]\d{1,2}[-\/]\d{4})/,
-    /(\d{2,4}年\d{1,2}月\d{1,2}日)/
+    /(\d{2,4}年\d{1,2}月\d{1,2}�?/
   ];
   
   for (const detection of textDetections) {
@@ -204,7 +204,7 @@ async function applyCategoryRules(merchantName) {
   // 获取默认分类规则
   const defaultRules = config.business.defaultCategoryRules;
   
-  // 检查默认规则
+  // 检查默认规�?
   for (const [keyword, category] of Object.entries(defaultRules)) {
     if (merchantName.toLowerCase().includes(keyword.toLowerCase())) {
       return {
@@ -234,17 +234,17 @@ const batchProcessImages = async (event) => {
   }
   
   if (images.length > 10) {
-    throw new Error('单次最多处理10张图片');
+    throw new Error('单次最多处�?0张图�?);
   }
   
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   
   if (ledgerResult.data[0].user_id !== user._id) {
-    throw new Error('无权访问该账本');
+    throw new Error('无权访问该账�?);
   }
   
   const results = [];
@@ -263,7 +263,7 @@ const batchProcessImages = async (event) => {
         parsed_data: {
           ...parsedResult,
           category: categoryResult.category || '',
-          suggested_category: categoryResult.category || '未分类'
+          suggested_category: categoryResult.category || '未分�?
         },
         confidence: ocrResult.confidence || 0.8
       });
@@ -285,7 +285,7 @@ const batchProcessImages = async (event) => {
 };
 
 /**
- * 获取 OCR 服务状态
+ * 获取 OCR 服务状�?
  */
 const getOCRStatus = async (event) => {
   const { OPENID } = getWXContext(cloud);
@@ -302,9 +302,11 @@ const getOCRStatus = async (event) => {
 };
 
 /**
- * 主函数入口
+ * 主函数入�?
  */
 exports.main = asyncHandler(async (event, context) => {
+  cloud.__context = context;
+  cloud.__event = event;
   const { action } = event;
   
   switch (action) {

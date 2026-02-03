@@ -17,7 +17,10 @@ Page({
         this.setCurrentMonth()
     },
 
-    onShow() {
+    async onShow() {
+        if (!await util.ensureLedger(app)) {
+            return
+        }
         this.loadDashboard()
     },
 

@@ -18,10 +18,14 @@ App({
     },
 
     onLaunch() {
-        console.log('小程序启动')
-        // 初始化云开发
+        console.log('App launch')
+        // Init CloudBase
         this.initCloudBase()
-        // 检查登录状态
+        // Ensure cloud user exists before data load
+        this.ensureCloudLogin().then(() => {
+            this.loadLedgers()
+        })
+        // Check login status (user profile authorization)
         this.checkLoginStatus()
     },
 
@@ -39,6 +43,36 @@ App({
         
         console.log('CloudBase 初始化完成')
     },
+
+    // Ensure cloud user exists (no user profile required)
+    ensureCloudLogin() {
+        const that = this
+        return new Promise((resolve) => {
+            wx.login({
+                success(loginRes) {
+                    const payload = {
+                        action: 'login',
+                        code: loginRes.code
+                    }
+                    wx.cloud.callFunction({
+                        name: 'user-service',
+                        data: { ...payload, data: { ...payload } }
+                    }).then(res => {
+                        if (res.result.success) {
+                            that.globalData.isLoggedIn = true
+                            resolve(res.result.data)
+                        } else {
+                            resolve(null)
+                        }
+                    }).catch(() => resolve(null))
+                },
+                fail() {
+                    resolve(null)
+                }
+            })
+        })
+    },
+
 
     // 检查登录状态
     checkLoginStatus() {
@@ -85,19 +119,28 @@ App({
     // 云函数登录
     cloudLogin() {
         const that = this
-        return wx.cloud.callFunction({
-            name: 'user-service',
-            data: {
-                action: 'login',
-                userInfo: that.globalData.userInfo
-            }
-        }).then(res => {
-            if (res.result.success) {
-                console.log('云函数登录成功')
-                return res.result.data
-            } else {
-                throw new Error(res.result.error || '登录失败')
-            }
+        return new Promise((resolve, reject) => {
+            wx.login({
+                success(loginRes) {
+                    const payload = {
+                        action: 'login',
+                        code: loginRes.code,
+                        userInfo: that.globalData.userInfo
+                    }
+                    wx.cloud.callFunction({
+                        name: 'user-service',
+                        data: { ...payload, data: { ...payload } }
+                    }).then(res => {
+                        if (res.result.success) {
+                            console.log('Cloud login ok')
+                            resolve(res.result.data)
+                        } else {
+                            reject(new Error(res.result.error || 'Login failed'))
+                        }
+                    }).catch(reject)
+                },
+                fail: reject
+            })
         })
     },
 
@@ -105,7 +148,7 @@ App({
     loadLedgers() {
         const that = this
         if (!this.globalData.isLoggedIn) {
-            console.log('用户未登录，跳过加载账本')
+            console.log('User not logged in, skip ledger load')
             return
         }
 
@@ -115,20 +158,22 @@ App({
                 action: 'list'
             }
         }).then(res => {
-            if (res.result.success && res.result.data.ledgers) {
-                that.globalData.ledgers = res.result.data.ledgers
-                if (res.result.data.ledgers.length > 0 && !that.globalData.currentLedgerId) {
-                    // 优先选择默认账本
-                    const defaultLedger = res.result.data.ledgers.find(l => l.is_default)
-                    that.globalData.currentLedgerId = defaultLedger ? defaultLedger._id : res.result.data.ledgers[0]._id
-                    // 加载当前账本的分类
-                    that.loadCategories()
-                }
+            if (!res.result.success) return
+            const data = res.result.data
+            const ledgers = Array.isArray(data) ? data : (data && data.ledgers ? data.ledgers : [])
+            that.globalData.ledgers = ledgers
+            if (ledgers.length > 0 && !that.globalData.currentLedgerId) {
+                // Prefer default ledger if present
+                const defaultLedger = ledgers.find(l => l.is_default)
+                const targetLedger = defaultLedger || ledgers[0]
+                that.globalData.currentLedgerId = targetLedger._id || targetLedger.id
+                // Prefer default ledger if present?
+                that.loadCategories()
             }
         }).catch(err => {
-            console.error('加载账本失败:', err)
+            console.error('Load ledgers failed:', err)
             wx.showToast({
-                title: '加载账本失败',
+                title: 'Load ledgers failed',
                 icon: 'none'
             })
         })
@@ -147,11 +192,14 @@ App({
                 action: 'getCategories'
             }
         }).then(res => {
-            if (res.result.success && res.result.data.categories) {
-                that.globalData.categories = res.result.data.categories
-            }
+            if (!res.result.success) return
+            const data = res.result.data
+            const categories = data && (data.categories || data.groups)
+                ? (data.categories || data.groups)
+                : (Array.isArray(data) ? data : [])
+            that.globalData.categories = categories
         }).catch(err => {
-            console.error('加载分类失败:', err)
+            console.error('Load categories failed:', err)
         })
     },
 
@@ -163,14 +211,15 @@ App({
 
     // 调用云函数的通用方法
     callCloudFunction(functionName, data) {
+        const payload = data && data.data === undefined ? { ...data, data: { ...data } } : data
         return wx.cloud.callFunction({
             name: functionName,
-            data: data
+            data: payload
         }).then(res => {
             if (res.result.success) {
                 return res.result.data
             } else {
-                throw new Error(res.result.error || '请求失败')
+                throw new Error(res.result.error || 'Request failed')
             }
         })
     },

@@ -113,6 +113,45 @@ function showConfirm(options) {
     })
 }
 
+/**
+ * 确保当前有可用账本，否则引导到设置页创建账本
+ * @param {Object} app 小程序 App 实例
+ * @returns {boolean} 是否已具备账本
+ */
+async function ensureLedger(app, options = {}) {
+    if (!app) return false
+    if (app.globalData.currentLedgerId) return true
+
+    try {
+        if (!app.globalData.ledgers || app.globalData.ledgers.length === 0) {
+            const data = await app.callCloudFunction('ledger-service', { action: 'list' })
+            const ledgers = Array.isArray(data) ? data : (data && data.ledgers ? data.ledgers : [])
+            app.globalData.ledgers = ledgers
+        }
+    } catch (err) {
+        // Ignore fetch error; fallback to prompt below
+    }
+
+    if (!app.globalData.currentLedgerId && app.globalData.ledgers && app.globalData.ledgers.length > 0) {
+        const first = app.globalData.ledgers[0]
+        app.globalData.currentLedgerId = first.id || first._id
+    }
+
+    if (app.globalData.currentLedgerId) return true
+
+    if (!options.silent) {
+        wx.showModal({
+            title: '请先创建账本',
+            content: '当前还没有账本，请先在设置中创建账本后再使用其他功能。',
+            showCancel: false,
+            success() {
+                wx.switchTab({ url: '/pages/settings/settings' })
+            }
+        })
+    }
+    return false
+}
+
 module.exports = {
     formatDate,
     formatAmount,
@@ -123,5 +162,6 @@ module.exports = {
     showToast,
     showLoading,
     hideLoading,
-    showConfirm
+    showConfirm,
+    ensureLedger
 }

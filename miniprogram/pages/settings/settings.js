@@ -79,8 +79,15 @@ Page({
         try {
             const res = await api.getLedgers()
             if (res.success && res.ledgers) {
-                const currentId = app.globalData.currentLedgerId
-                const index = res.ledgers.findIndex(l => l.id === currentId)
+                let currentId = app.globalData.currentLedgerId
+                if (!currentId && res.ledgers.length > 0) {
+                    currentId = res.ledgers[0].id || res.ledgers[0]._id
+                    app.switchLedger(currentId)
+                }
+                if (!currentId) {
+                    currentId = null
+                }
+                const index = res.ledgers.findIndex(l => (l.id || l._id) === currentId)
                 this.setData({
                     ledgers: res.ledgers,
                     currentLedgerId: currentId,
@@ -89,12 +96,12 @@ Page({
                 this.updateCurrentLedgerForm()
             }
         } catch (err) {
-            console.error('加载账本失败:', err)
+            console.error('??????:', err)
         }
     },
 
     updateCurrentLedgerForm() {
-        const current = this.data.ledgers.find(l => l.id === this.data.currentLedgerId)
+        const current = this.data.ledgers.find(l => (l.id || l._id) === this.data.currentLedgerId)
         if (current) {
             this.setData({
                 'ledgerForm.name': current.name,
@@ -106,13 +113,16 @@ Page({
     handleLedgerChange(e) {
         const index = e.detail.value
         const ledger = this.data.ledgers[index]
-        if (ledger) {
-            app.switchLedger(ledger.id)
-            this.setData({ currentLedgerId: ledger.id, currentLedgerIndex: parseInt(index) })
+        const ledgerId = ledger ? (ledger.id || ledger._id) : null
+        if (ledgerId) {
+            app.switchLedger(ledgerId)
+            this.setData({ currentLedgerId: ledgerId, currentLedgerIndex: parseInt(index) })
             this.updateCurrentLedgerForm()
             this.loadCategories()
             this.loadRules()
             this.loadRecurringRules()
+        } else {
+            util.showToast('账本信息异常，请刷新重试')
         }
     },
 
@@ -320,9 +330,13 @@ Page({
     // === 周期性账单 ===
     async loadRecurringRules() {
         try {
+            if (!app.globalData.currentLedgerId) {
+                this.setData({ recurringRules: [] })
+                return
+            }
             const res = await api.getRecurringRules()
             if (res.success && res.rules) { this.setData({ recurringRules: res.rules }) }
-        } catch (err) { console.error('加载周期性规则失败:', err) }
+        } catch (err) { console.error('?????????:', err) }
     },
 
     handleShowAddRecurring() {

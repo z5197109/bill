@@ -1,9 +1,9 @@
-// 文件处理云函数
+// 文件处理云函�?
 const cloud = require('@cloudbase/node-sdk');
-const { successResponse, errorResponse, asyncHandler, verifyUser, generateFileName, validate } = require('./shared/utils');
+const { successResponse, errorResponse, asyncHandler, verifyUser, getWXContext, generateFileName, validate } = require('./shared/utils');
 const config = require('./shared/config');
 
-// 初始化云开发
+// 初始化云开�?
 const app = cloud.init({
   env: cloud.SYMBOL_CURRENT_ENV
 });
@@ -15,17 +15,17 @@ const storage = app.storage();
  * 获取文件上传签名
  */
 const getUploadSignature = async (event) => {
-  const { OPENID } = cloud.getWXContext();
+  const { OPENID } = getWXContext(cloud);
   const user = await verifyUser(app, OPENID);
   const { filename, ledger_id } = event.data;
   
-  validate.required(filename, '文件名');
+  validate.required(filename, '文件�?);
   validate.required(ledger_id, '账本ID');
   
   // 验证文件类型
   validate.fileType(filename, config.business.fileLimit.allowedTypes);
   
-  // 生成唯一文件名
+  // 生成唯一文件�?
   const uniqueFilename = generateFileName(filename);
   const now = new Date();
   const year = now.getFullYear();
@@ -43,7 +43,7 @@ const getUploadSignature = async (event) => {
   // 生成上传签名
   const uploadUrl = await storage.getUploadMetadata({
     cloudPath: filePath,
-    expires: 3600 // 1小时有效期
+    expires: 3600 // 1小时有效�?
   });
   
   return successResponse({
@@ -58,7 +58,7 @@ const getUploadSignature = async (event) => {
  * 确认文件上传完成
  */
 const confirmUpload = async (event) => {
-  const { OPENID } = cloud.getWXContext();
+  const { OPENID } = getWXContext(cloud);
   const user = await verifyUser(app, OPENID);
   const { file_path, ledger_id } = event.data;
   
@@ -68,11 +68,11 @@ const confirmUpload = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   
   if (ledgerResult.data[0].user_id !== user._id) {
-    throw new Error('无权访问该账本');
+    throw new Error('无权访问该账�?);
   }
   
   // 获取文件信息
@@ -82,7 +82,7 @@ const confirmUpload = async (event) => {
     });
     
     if (!fileInfo.fileList || fileInfo.fileList.length === 0) {
-      throw new Error('文件不存在');
+      throw new Error('文件不存�?);
     }
     
     const file = fileInfo.fileList[0];
@@ -108,7 +108,7 @@ const confirmUpload = async (event) => {
  * 删除文件
  */
 const deleteFile = async (event) => {
-  const { OPENID } = cloud.getWXContext();
+  const { OPENID } = getWXContext(cloud);
   const user = await verifyUser(app, OPENID);
   const { file_path } = event.data;
   
@@ -116,7 +116,7 @@ const deleteFile = async (event) => {
   
   // 验证文件路径是否属于当前用户
   if (!file_path.includes(`bills/${user._id}/`)) {
-    throw new Error('无权删除该文件');
+    throw new Error('无权删除该文�?);
   }
   
   try {
@@ -134,7 +134,7 @@ const deleteFile = async (event) => {
  * 获取文件下载链接
  */
 const getDownloadUrl = async (event) => {
-  const { OPENID } = cloud.getWXContext();
+  const { OPENID } = getWXContext(cloud);
   const user = await verifyUser(app, OPENID);
   const { file_path } = event.data;
   
@@ -142,7 +142,7 @@ const getDownloadUrl = async (event) => {
   
   // 验证文件路径是否属于当前用户
   if (!file_path.includes(`bills/${user._id}/`)) {
-    throw new Error('无权访问该文件');
+    throw new Error('无权访问该文�?);
   }
   
   try {
@@ -151,12 +151,12 @@ const getDownloadUrl = async (event) => {
     });
     
     if (!result.fileList || result.fileList.length === 0) {
-      throw new Error('文件不存在');
+      throw new Error('文件不存�?);
     }
     
     return successResponse({
       download_url: result.fileList[0].download_url,
-      expires_at: Date.now() + 3600 * 1000 // 1小时有效期
+      expires_at: Date.now() + 3600 * 1000 // 1小时有效�?
     });
     
   } catch (error) {
@@ -168,7 +168,7 @@ const getDownloadUrl = async (event) => {
  * 批量删除文件
  */
 const batchDeleteFiles = async (event) => {
-  const { OPENID } = cloud.getWXContext();
+  const { OPENID } = getWXContext(cloud);
   const user = await verifyUser(app, OPENID);
   const { file_paths } = event.data;
   
@@ -176,7 +176,7 @@ const batchDeleteFiles = async (event) => {
     throw new Error('文件路径列表不能为空');
   }
   
-  // 验证所有文件路径是否属于当前用户
+  // 验证所有文件路径是否属于当前用�?
   const invalidPaths = file_paths.filter(path => !path.includes(`bills/${user._id}/`));
   if (invalidPaths.length > 0) {
     throw new Error('部分文件无权删除');
@@ -200,7 +200,7 @@ const batchDeleteFiles = async (event) => {
  * 获取用户存储使用情况
  */
 const getStorageUsage = async (event) => {
-  const { OPENID } = cloud.getWXContext();
+  const { OPENID } = getWXContext(cloud);
   const user = await verifyUser(app, OPENID);
   
   // 获取用户所有账单的文件信息
@@ -212,7 +212,7 @@ const getStorageUsage = async (event) => {
   const bills = billsResult.data;
   const fileCount = bills.filter(bill => bill.image_url).length;
   
-  // 计算存储使用量（这里简化处理，实际可以通过存储API获取）
+  // 计算存储使用量（这里简化处理，实际可以通过存储API获取�?
   const estimatedSize = fileCount * 500 * 1024; // 假设平均每个文件500KB
   
   return successResponse({
@@ -224,7 +224,7 @@ const getStorageUsage = async (event) => {
 };
 
 /**
- * 格式化文件大小
+ * 格式化文件大�?
  */
 const formatFileSize = (bytes) => {
   if (bytes === 0) return '0 B';
@@ -235,9 +235,11 @@ const formatFileSize = (bytes) => {
 };
 
 /**
- * 主函数入口
+ * 主函数入�?
  */
 exports.main = asyncHandler(async (event, context) => {
+  cloud.__context = context;
+  cloud.__event = event;
   const { action } = event;
   
   switch (action) {

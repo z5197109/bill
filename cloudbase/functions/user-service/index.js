@@ -1,8 +1,8 @@
-// 用户管理云函数
+// 用户管理云函�?
 const cloud = require('@cloudbase/node-sdk');
 const { successResponse, errorResponse, asyncHandler, verifyUser, getWXContext } = require('./shared/utils');
 
-// 初始化云开发
+// 初始化云开�?
 const app = cloud.init({
   env: cloud.SYMBOL_CURRENT_ENV
 });
@@ -26,10 +26,10 @@ const login = async (event) => {
     throw new Error('获取用户信息失败');
   }
   
-  // 查找或创建用户
+  // 查找或创建用�?
   let user = await verifyUser(app, OPENID);
   
-  // 更新最后登录时间
+  // 更新最后登录时�?
   await db.collection('users').doc(user._id).update({
     data: {
       updated_at: new Date(),
@@ -39,7 +39,7 @@ const login = async (event) => {
   
   return successResponse({
     user: {
-      id: user._id,
+      id: (user._id || user.id),
       openid: user.openid,
       nickname: user.nickname,
       avatar: user.avatar,
@@ -57,7 +57,7 @@ const getUserInfo = async (event) => {
   const user = await verifyUser(app, OPENID);
   
   return successResponse({
-    id: user._id,
+    id: (user._id || user.id),
     openid: user.openid,
     nickname: user.nickname,
     avatar: user.avatar,
@@ -99,9 +99,9 @@ const getUserStats = async (event) => {
   
   // 统计用户数据
   const [ledgerCount, billCount, categoryCount] = await Promise.all([
-    db.collection('ledgers').where({ user_id: user._id, is_deleted: false }).count(),
-    db.collection('bills').where({ user_id: user._id }).count(),
-    db.collection('categories').where({ user_id: user._id }).count()
+    db.collection('ledgers').where({ user_id: (user._id || user.id), is_deleted: false }).count(),
+    db.collection('bills').where({ user_id: (user._id || user.id) }).count(),
+    db.collection('categories').where({ user_id: (user._id || user.id) }).count()
   ]);
   
   return successResponse({
@@ -126,7 +126,7 @@ const migrateUserData = async (event) => {
   
   // 检查是否已经迁移过
   const existingLedgers = await db.collection('ledgers')
-    .where({ user_id: user._id })
+    .where({ user_id: (user._id || user.id) })
     .count();
     
   if (existingLedgers.total > 0) {
@@ -134,7 +134,7 @@ const migrateUserData = async (event) => {
   }
   
   try {
-    // 开始批量插入数据
+    // 开始批量插入数�?
     const results = {};
     
     // 1. 插入账本数据
@@ -177,7 +177,7 @@ const migrateUserData = async (event) => {
       results.bills = billResults.map(r => r._id);
     }
     
-    // 5. 插入周期性规则数据
+    // 5. 插入周期性规则数�?
     if (migrationData.recurringRules && migrationData.recurringRules.length > 0) {
       const recurringResults = await Promise.all(
         migrationData.recurringRules.map(rule => 
@@ -200,9 +200,11 @@ const migrateUserData = async (event) => {
 };
 
 /**
- * 主函数入口
+ * 主函数入�?
  */
 exports.main = asyncHandler(async (event, context) => {
+  cloud.__context = context;
+  cloud.__event = event;
   const { action } = event;
   
   switch (action) {

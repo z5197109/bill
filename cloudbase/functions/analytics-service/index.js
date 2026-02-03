@@ -1,9 +1,9 @@
-// 分析统计云函数
+// 分析统计云函�?
 const cloud = require('@cloudbase/node-sdk');
 const dayjs = require('dayjs');
 const { successResponse, errorResponse, asyncHandler, verifyUser, verifyResourceAccess, validate, formatDate, getWXContext } = require('./shared/utils');
 
-// 初始化云开发
+// 初始化云开�?
 const app = cloud.init({
   env: cloud.SYMBOL_CURRENT_ENV
 });
@@ -24,7 +24,7 @@ const getSummary = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
 
@@ -43,7 +43,7 @@ const getSummary = async (event) => {
     where.bill_date = _.lte(new Date(end_date + 'T23:59:59'));
   }
 
-  // 关键词搜索
+  // 关键词搜�?
   if (keyword) {
     where.merchant = db.RegExp({
       regexp: keyword,
@@ -51,7 +51,7 @@ const getSummary = async (event) => {
     });
   }
 
-  // 分类筛选
+  // 分类筛�?
   if (major) {
     where.major = major;
   }
@@ -102,7 +102,7 @@ const getMonthlyStats = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
 
@@ -129,7 +129,7 @@ const getMonthlyStats = async (event) => {
     .filter(bill => bill.include_in_budget)
     .reduce((sum, bill) => sum + (bill.amount || 0), 0);
 
-  // 日消费统计
+  // 日消费统�?
   const dailyStats = {};
   bills.forEach(bill => {
     const day = dayjs(bill.bill_date).format('YYYY-MM-DD');
@@ -143,7 +143,7 @@ const getMonthlyStats = async (event) => {
   // 分类统计
   const categoryStats = {};
   bills.forEach(bill => {
-    const category = bill.category || '未分类';
+    const category = bill.category || '未分�?;
     if (!categoryStats[category]) {
       categoryStats[category] = { amount: 0, count: 0, percentage: 0 };
     }
@@ -151,7 +151,7 @@ const getMonthlyStats = async (event) => {
     categoryStats[category].count += 1;
   });
 
-  // 计算分类百分比
+  // 计算分类百分�?
   Object.keys(categoryStats).forEach(category => {
     categoryStats[category].percentage = totalAmount > 0
       ? Math.round((categoryStats[category].amount / totalAmount) * 100 * 100) / 100
@@ -189,7 +189,7 @@ const getYearlyStats = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
 
@@ -237,7 +237,7 @@ const getYearlyStats = async (event) => {
     quarterlyStats[quarterKey].count += monthlyStats[month].count;
   });
 
-  // 总统计
+  // 总统�?
   const totalAmount = bills.reduce((sum, bill) => sum + (bill.amount || 0), 0);
   const budgetAmount = bills
     .filter(bill => bill.include_in_budget)
@@ -269,7 +269,7 @@ const getCategoryTrends = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
 
@@ -297,7 +297,7 @@ const getCategoryTrends = async (event) => {
   const monthlyTrends = {};
   bills.forEach(bill => {
     const monthKey = dayjs(bill.bill_date).format('YYYY-MM');
-    const categoryName = bill.category || '未分类';
+    const categoryName = bill.category || '未分�?;
 
     if (!monthlyTrends[monthKey]) {
       monthlyTrends[monthKey] = {};
@@ -311,7 +311,7 @@ const getCategoryTrends = async (event) => {
     monthlyTrends[monthKey][categoryName].count += 1;
   });
 
-  // 计算增长率
+  // 计算增长�?
   const trendAnalysis = {};
   const sortedMonths = Object.keys(monthlyTrends).sort();
 
@@ -341,7 +341,7 @@ const getCategoryTrends = async (event) => {
     });
   });
 
-  // 计算平均增长率
+  // 计算平均增长�?
   Object.keys(trendAnalysis).forEach(cat => {
     const rates = trendAnalysis[cat].growth_rates.map(r => r.growth_rate);
     trendAnalysis[cat].avg_growth = rates.length > 0
@@ -357,7 +357,7 @@ const getCategoryTrends = async (event) => {
 };
 
 /**
- * 获取消费排行榜
+ * 获取消费排行�?
  */
 const getSpendingRanking = async (event) => {
   const { OPENID } = getWXContext(cloud);
@@ -369,7 +369,7 @@ const getSpendingRanking = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
 
@@ -401,7 +401,7 @@ const getSpendingRanking = async (event) => {
         break;
       case 'category':
       default:
-        key = bill.category || '未分类';
+        key = bill.category || '未分�?;
         break;
     }
 
@@ -424,7 +424,7 @@ const getSpendingRanking = async (event) => {
         : 0
     }))
     .sort((a, b) => b.amount - a.amount)
-    .slice(0, Math.min(limit, 50)); // 最多返回50条
+    .slice(0, Math.min(limit, 50)); // 最多返�?0�?
 
   return successResponse({
     period: { start_date, end_date },
@@ -447,7 +447,7 @@ const exportData = async (event) => {
   // 验证账本权限
   const ledgerResult = await db.collection('ledgers').doc(ledger_id).get();
   if (!ledgerResult.data.length) {
-    throw new Error('账本不存在');
+    throw new Error('账本不存�?);
   }
   verifyResourceAccess(ledgerResult.data[0], user._id);
 
@@ -463,13 +463,13 @@ const exportData = async (event) => {
     if (end_date) where.bill_date[_.lte] = new Date(end_date);
   }
 
-  // 查询所有数据
+  // 查询所有数�?
   const billsResult = await db.collection('bills').where(where).get();
   const bills = billsResult.data;
 
-  // 格式化导出数据
+  // 格式化导出数�?
   const exportData = bills.map(bill => ({
-    id: bill._id,
+    id: (bill._id || bill.id),
     merchant: bill.merchant,
     amount: bill.amount,
     category: bill.category,
@@ -492,9 +492,11 @@ const exportData = async (event) => {
 };
 
 /**
- * 主函数入口
+ * 主函数入�?
  */
 exports.main = asyncHandler(async (event, context) => {
+  cloud.__context = context;
+  cloud.__event = event;
   const { action } = event;
 
   switch (action) {

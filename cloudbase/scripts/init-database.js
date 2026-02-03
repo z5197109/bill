@@ -3,7 +3,7 @@ const cloud = require('@cloudbase/node-sdk');
 
 // 初始化云开发
 const app = cloud.init({
-  env: process.env.CLOUDBASE_ENV || 'bill-assistant-dev'
+  env: process.env.CLOUDBASE_ENV || 'dev-4g40wh23d397fbae'
 });
 
 const db = app.database();
