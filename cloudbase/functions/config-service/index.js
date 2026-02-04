@@ -1,638 +1,411 @@
-// 配置管理云函�?
+// 配置管理云函数
 const cloud = require('@cloudbase/node-sdk');
-const { successResponse, errorResponse, asyncHandler, verifyUser, validate, parseCategory, formatCategory, getWXContext } = require('./shared/utils');
-const config = require('./shared/config');
+const { successResponse, errorResponse, asyncHandler, verifyUser, validate, getWXContext } = require('./shared/utils');
 
-// 初始化云开�?
-const app = cloud.init({
-  env: cloud.SYMBOL_CURRENT_ENV
-});
-
-const db = app.database();
-const _ = db.command;
+/**
+ * 初始化云开发
+ */
+const initApp = () => {
+    return cloud.init({
+        env: cloud.DYNAMIC_CURRENT_ENV
+    });
+};
 
 /**
  * 获取分类列表
  */
 const getCategories = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  
-  const categoriesResult = await db.collection('categories')
-    .where({ user_id: user._id })
-    .orderBy('sort_order', 'asc')
-    .get();
-  
-  return successResponse({
-    categories: categoriesResult.data
-  });
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
+
+    const user = await verifyUser(app, OPENID);
+    const { ledger_id } = event.data || event;
+
+    // 获取用户自定义分类
+    let query = { user_id: user._id };
+    if (ledger_id) {
+        query.ledger_id = ledger_id;
+    }
+
+    const result = await db.collection('categories')
+        .where(query)
+        .orderBy('sort_order', 'asc')
+        .get();
+
+    // 按大类分组
+    const groups = {};
+    for (const cat of result.data || []) {
+        const major = cat.major || '其他';
+        if (!groups[major]) {
+            groups[major] = {
+                name: major,
+                icon: cat.icon || '📁',
+                items: []
+            };
+        }
+        if (cat.minor) {
+            groups[major].items.push({
+                id: cat._id,
+                name: cat.minor,
+                full_name: `${major}/${cat.minor}`
+            });
+        }
+    }
+
+    return successResponse({
+        groups: Object.values(groups),
+        categories: result.data || []
+    });
 };
 
 /**
- * 创建分类
+ * 保存分类
  */
-const createCategory = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const { name, major_category, minor_category, color, icon, sort_order = 0 } = event.data;
-  
-  // 验证必填字段
-  if (!name && !major_category) {
-    throw new Error('分类名称或主分类不能为空');
-  }
-  
-  const categoryName = name || formatCategory(major_category, minor_category);
-  
-  // 检查分类是否已存在
-  const existingResult = await db.collection('categories')
-    .where({
-      user_id: user._id,
-      name: categoryName
-    })
-    .get();
-    
-  if (existingResult.data.length > 0) {
-    throw new Error('分类已存�?);
-  }
-  
-  const categoryData = {
-    user_id: user._id,
-    name: categoryName,
-    major_category: major_category || parseCategory(categoryName).major,
-    minor_category: minor_category || parseCategory(categoryName).minor,
-    color: color || '#1890ff',
-    icon: icon || 'default',
-    sort_order: parseInt(sort_order) || 0,
-    created_at: new Date(),
-    updated_at: new Date()
-  };
-  
-  const result = await db.collection('categories').add({
-    data: categoryData
-  });
-  
-  return successResponse({
-    id: (result.id || result._id),
-    ...categoryData
-  });
-};
+const saveCategory = async (event) => {
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
 
-/**
- * 更新分类
- */
-const updateCategory = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const { category_id, ...updateFields } = event.data;
-  
-  validate.required(category_id, '分类ID');
-  
-  // 获取分类信息并验证权�?
-  const categoryResult = await db.collection('categories').doc(category_id).get();
-  if (!categoryResult.data.length) {
-    throw new Error('分类不存�?);
-  }
-  
-  const category = categoryResult.data[0];
-  if (category.user_id !== user._id) {
-    throw new Error('无权修改该分�?);
-  }
-  
-  // 构建更新数据
-  const updateData = {
-    updated_at: new Date()
-  };
-  
-  if (updateFields.name !== undefined) {
-    validate.required(updateFields.name, '分类名称');
-    updateData.name = updateFields.name.trim();
-    
-    // 更新主分类和子分�?
-    const parsed = parseCategory(updateData.name);
-    updateData.major_category = parsed.major;
-    updateData.minor_category = parsed.minor;
-  }
-  
-  if (updateFields.major_category !== undefined) {
-    updateData.major_category = updateFields.major_category;
-    updateData.name = formatCategory(updateFields.major_category, updateFields.minor_category || category.minor_category);
-  }
-  
-  if (updateFields.minor_category !== undefined) {
-    updateData.minor_category = updateFields.minor_category;
-    updateData.name = formatCategory(updateFields.major_category || category.major_category, updateFields.minor_category);
-  }
-  
-  if (updateFields.color !== undefined) {
-    updateData.color = updateFields.color;
-  }
-  
-  if (updateFields.icon !== undefined) {
-    updateData.icon = updateFields.icon;
-  }
-  
-  if (updateFields.sort_order !== undefined) {
-    updateData.sort_order = parseInt(updateFields.sort_order) || 0;
-  }
-  
-  await db.collection('categories').doc(category_id).update({
-    data: updateData
-  });
-  
-  return successResponse({ message: '分类更新成功' });
+    const user = await verifyUser(app, OPENID);
+    const data = event.data || event;
+
+    // 支持多种字段命名方式
+    const id = data.id || data.category_id;
+    let major = data.major || data.major_category || '';
+    let minor = data.minor || data.minor_category || '';
+    const icon = data.icon;
+    const ledger_id = data.ledger_id;
+    const sort_order = data.sort_order;
+
+    // 如果提供了 name 字段，尝试解析
+    if (!major && data.name) {
+        const parts = data.name.split('/');
+        major = parts[0] || '';
+        minor = parts[1] || '';
+    }
+
+    if (!major || !major.trim()) {
+        throw new Error('大类名称 不能为空');
+    }
+
+    if (id) {
+        // 更新分类
+        await db.collection('categories').doc(id).update({
+            major: major.trim(),
+            minor: (minor || '').trim(),
+            icon: icon || '📁',
+            sort_order: sort_order || 0,
+            updated_at: new Date()
+        });
+
+        return successResponse({ message: '分类更新成功' });
+    } else {
+        // 创建分类
+        const newCategory = {
+            user_id: user._id,
+            ledger_id: ledger_id || null,
+            major: major.trim(),
+            minor: (minor || '').trim(),
+            icon: icon || '📁',
+            sort_order: sort_order || 0,
+            created_at: new Date(),
+            updated_at: new Date()
+        };
+
+        const result = await db.collection('categories').add(newCategory);
+
+        return successResponse({
+            category_id: result.id,
+            message: '分类创建成功'
+        });
+    }
 };
 
 /**
  * 删除分类
  */
 const deleteCategory = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const { category_id } = event.data;
-  
-  validate.required(category_id, '分类ID');
-  
-  // 获取分类信息并验证权�?
-  const categoryResult = await db.collection('categories').doc(category_id).get();
-  if (!categoryResult.data.length) {
-    throw new Error('分类不存�?);
-  }
-  
-  const category = categoryResult.data[0];
-  if (category.user_id !== user._id) {
-    throw new Error('无权删除该分�?);
-  }
-  
-  // 检查是否有账单使用该分�?
-  const billsResult = await db.collection('bills')
-    .where({
-      user_id: user._id,
-      category: category.name
-    })
-    .count();
-    
-  if (billsResult.total > 0) {
-    throw new Error(`该分类下还有 ${billsResult.total} 条账单，无法删除`);
-  }
-  
-  await db.collection('categories').doc(category_id).remove();
-  
-  return successResponse({ message: '分类删除成功' });
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
+
+    const user = await verifyUser(app, OPENID);
+    const { id } = event.data || event;
+
+    validate.required(id, '分类ID');
+
+    await db.collection('categories').doc(id).remove();
+
+    return successResponse({ message: '分类删除成功' });
 };
 
 /**
- * 获取分类规则列表
+ * 获取分类规则
  */
 const getCategoryRules = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  
-  const rulesResult = await db.collection('category_rules')
-    .where({ user_id: user._id })
-    .orderBy('priority', 'desc')
-    .get();
-  
-  return successResponse({
-    rules: rulesResult.data
-  });
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
+
+    const user = await verifyUser(app, OPENID);
+    const { ledger_id } = event.data || event;
+
+    let query = { user_id: user._id };
+    if (ledger_id) {
+        query.ledger_id = ledger_id;
+    }
+
+    const result = await db.collection('category_rules')
+        .where(query)
+        .orderBy('priority', 'desc')
+        .get();
+
+    return successResponse(result.data || []);
 };
 
 /**
- * 创建分类规则
+ * 保存分类规则
  */
-const createCategoryRule = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const data = event.data || event;
-  const { keyword, category, category_id, priority = 1, is_regex = false, enabled = true } = data;
-  
-  validate.required(keyword, '关键�?);
-  validate.required(category, '分类');
-  
-  // 检查规则是否已存在
-  const existingResult = await db.collection('category_rules')
-    .where({
-      user_id: user._id,
-      keyword: keyword.trim()
-    })
-    .get();
-    
-  if (existingResult.data.length > 0) {
-    throw new Error('该关键词规则已存�?);
-  }
-  
-  const ruleData = {
-    user_id: user._id,
-    keyword: keyword.trim(),
-    category: category.trim(),
-    category_id: category_id || null,
-    priority: parseInt(priority) || 1,
-    is_regex: Boolean(is_regex),
-    enabled: Boolean(enabled),
-    created_at: new Date(),
-    updated_at: new Date()
-  };
-  
-  const result = await db.collection('category_rules').add({
-    data: ruleData
-  });
-  
-  return successResponse({
-    id: (result.id || result._id),
-    ...ruleData
-  });
-};
+const saveCategoryRule = async (event) => {
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
 
-/**
- * 更新分类规则
- */
-const updateCategoryRule = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const data = event.data || event;
-  const { rule_id, ...updateFields } = data;
-  
-  validate.required(rule_id, '??ID');
-  
-  // ???????????
-  const ruleResult = await db.collection('category_rules').doc(rule_id).get();
-  if (!ruleResult.data.length) {
-    throw new Error('?????');
-  }
-  
-  const rule = ruleResult.data[0];
-  if (rule.user_id !== user._id) {
-    throw new Error('???????');
-  }
-  
-  // ??????
-  const updateData = {
-    updated_at: new Date()
-  };
-  
-  if (updateFields.keyword !== undefined) {
-    validate.required(updateFields.keyword, '???');
-    updateData.keyword = updateFields.keyword.trim();
-  }
-  
-  if (updateFields.category !== undefined) {
-    validate.required(updateFields.category, '??');
-    updateData.category = updateFields.category.trim();
-  }
+    const user = await verifyUser(app, OPENID);
+    const { id, keyword, category, ledger_id, priority, is_regex } = event.data || event;
 
-  if (updateFields.category_id !== undefined) {
-    updateData.category_id = updateFields.category_id;
-  }
-  
-  if (updateFields.priority !== undefined) {
-    updateData.priority = parseInt(updateFields.priority) || 1;
-  }
-  
-  if (updateFields.is_regex !== undefined) {
-    updateData.is_regex = Boolean(updateFields.is_regex);
-  }
-  
-  if (updateFields.enabled !== undefined) {
-    updateData.enabled = Boolean(updateFields.enabled);
-  }
-  
-  await db.collection('category_rules').doc(rule_id).update({
-    data: updateData
-  });
-  
-  return successResponse({ message: '??????' });
+    validate.required(keyword, '关键词');
+    validate.required(category, '分类');
+
+    if (id) {
+        // 更新规则
+        await db.collection('category_rules').doc(id).update({
+            keyword: keyword.trim(),
+            category: category.trim(),
+            priority: priority || 0,
+            is_regex: is_regex || false,
+            updated_at: new Date()
+        });
+
+        return successResponse({ message: '规则更新成功' });
+    } else {
+        // 检查是否存在相同关键词
+        const existing = await db.collection('category_rules')
+            .where({
+                user_id: user._id,
+                keyword: keyword.trim(),
+                category: category.trim()
+            })
+            .count();
+
+        if (existing.total > 0) {
+            throw new Error('同一分类下关键词已存在');
+        }
+
+        // 创建规则
+        const newRule = {
+            user_id: user._id,
+            ledger_id: ledger_id || null,
+            keyword: keyword.trim(),
+            category: category.trim(),
+            priority: priority || 0,
+            is_regex: is_regex || false,
+            created_at: new Date(),
+            updated_at: new Date()
+        };
+
+        const result = await db.collection('category_rules').add(newRule);
+
+        return successResponse({
+            rule_id: result.id,
+            message: '规则创建成功'
+        });
+    }
 };
 
 /**
  * 删除分类规则
  */
 const deleteCategoryRule = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const { rule_id } = event.data;
-  
-  validate.required(rule_id, '规则ID');
-  
-  // 获取规则信息并验证权�?
-  const ruleResult = await db.collection('category_rules').doc(rule_id).get();
-  if (!ruleResult.data.length) {
-    throw new Error('规则不存�?);
-  }
-  
-  const rule = ruleResult.data[0];
-  if (rule.user_id !== user._id) {
-    throw new Error('无权删除该规�?);
-  }
-  
-  await db.collection('category_rules').doc(rule_id).remove();
-  
-  return successResponse({ message: '规则删除成功' });
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
+
+    const user = await verifyUser(app, OPENID);
+    const { id } = event.data || event;
+
+    validate.required(id, '规则ID');
+
+    await db.collection('category_rules').doc(id).remove();
+
+    return successResponse({ message: '规则删除成功' });
 };
 
 /**
- * 初始化默认配�?
- */
-const initDefaultConfig = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  
-  // 检查是否已经初始化�?
-  const existingRulesResult = await db.collection('category_rules')
-    .where({ user_id: user._id })
-    .count();
-    
-  if (existingRulesResult.total > 0) {
-    return successResponse({ message: '配置已存在，无需重复初始�? });
-  }
-  
-  // 创建默认分类规则
-  const defaultRules = Object.entries(config.business.defaultCategoryRules)
-    .map(([keyword, category], index) => ({
-      user_id: user._id,
-      keyword,
-      category,
-      priority: 10 - index, // 按顺序设置优先级
-      is_regex: false,
-      enabled: true,
-      created_at: new Date(),
-      updated_at: new Date()
-    }));
-  
-  // 批量插入规则
-  if (defaultRules.length > 0) {
-    await Promise.all(
-      defaultRules.map(rule => 
-        db.collection('category_rules').add({ data: rule })
-      )
-    );
-  }
-  
-  return successResponse({
-    message: '默认配置初始化成�?,
-    rules_count: defaultRules.length
-  });
-};
-
-/**
- * ?????????
+ * 获取循环账单规则
  */
 const getRecurringRules = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const data = event.data || event;
-  const { ledger_id } = data;
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
 
-  validate.required(ledger_id, '??ID');
+    const user = await verifyUser(app, OPENID);
+    const { ledger_id } = event.data || event;
 
-  const rulesResult = await db.collection('recurring_rules')
-    .where({ user_id: user._id, ledger_id })
-    .orderBy('created_at', 'desc')
-    .get();
+    let query = { user_id: user._id, is_active: true };
+    if (ledger_id) {
+        query.ledger_id = ledger_id;
+    }
 
-  return successResponse({ rules: rulesResult.data });
+    const result = await db.collection('recurring_rules')
+        .where(query)
+        .get();
+
+    return successResponse(result.data || []);
 };
 
 /**
- * ?????????
+ * 保存循环账单规则
  */
-const createRecurringRule = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const data = event.data || event;
-  const {
-    ledger_id,
-    keyword,
-    amount,
-    category_id,
-    category,
-    schedule_type,
-    day_of_month,
-    day_of_week,
-    enabled = true,
-    include_in_budget = true,
-    note = ''
-  } = data;
+const saveRecurringRule = async (event) => {
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
 
-  validate.required(ledger_id, '??ID');
-  validate.required(keyword, '???');
-  validate.required(amount, '??');
-  validate.positiveNumber(amount, '??');
+    const user = await verifyUser(app, OPENID);
+    const { id, merchant, amount, category, frequency, day_of_month, ledger_id, is_active } = event.data || event;
 
-  const ruleData = {
-    user_id: user._id,
-    ledger_id,
-    keyword: keyword.trim(),
-    amount: parseFloat(amount),
-    category_id: category_id || null,
-    category: category || '',
-    schedule_type: schedule_type || 'monthly',
-    day_of_month: day_of_month || 1,
-    day_of_week: day_of_week || 1,
-    enabled: Boolean(enabled),
-    include_in_budget: Boolean(include_in_budget),
-    note: note || '',
-    created_at: new Date(),
-    updated_at: new Date()
-  };
+    validate.required(merchant, '商户名称');
+    validate.required(amount, '金额');
+    validate.required(category, '分类');
+    validate.required(frequency, '频率');
 
-  const result = await db.collection('recurring_rules').add({ data: ruleData });
+    if (id) {
+        // 更新规则
+        const updateData = {
+            merchant: merchant.trim(),
+            amount: parseFloat(amount),
+            category: category.trim(),
+            frequency,
+            day_of_month: day_of_month || 1,
+            is_active: is_active !== false,
+            updated_at: new Date()
+        };
 
-  return successResponse({ id: (result.id || result._id), ...ruleData });
+        await db.collection('recurring_rules').doc(id).update(updateData);
+
+        return successResponse({ message: '规则更新成功' });
+    } else {
+        // 创建规则
+        const newRule = {
+            user_id: user._id,
+            ledger_id: ledger_id || null,
+            merchant: merchant.trim(),
+            amount: parseFloat(amount),
+            category: category.trim(),
+            frequency,
+            day_of_month: day_of_month || 1,
+            is_active: true,
+            last_generated_at: null,
+            created_at: new Date(),
+            updated_at: new Date()
+        };
+
+        const result = await db.collection('recurring_rules').add(newRule);
+
+        return successResponse({
+            rule_id: result.id,
+            message: '规则创建成功'
+        });
+    }
 };
 
 /**
- * ?????????
- */
-const updateRecurringRule = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const data = event.data || event;
-  const { rule_id, ...updateFields } = data;
-
-  validate.required(rule_id, '??ID');
-
-  const ruleResult = await db.collection('recurring_rules').doc(rule_id).get();
-  if (!ruleResult.data.length) {
-    throw new Error('?????');
-  }
-
-  const rule = ruleResult.data[0];
-  if (rule.user_id !== user._id) {
-    throw new Error('???????');
-  }
-
-  const updateData = {
-    updated_at: new Date()
-  };
-
-  if (updateFields.keyword !== undefined) {
-    validate.required(updateFields.keyword, '???');
-    updateData.keyword = updateFields.keyword.trim();
-  }
-
-  if (updateFields.amount !== undefined) {
-    validate.positiveNumber(updateFields.amount, '??');
-    updateData.amount = parseFloat(updateFields.amount);
-  }
-
-  if (updateFields.category_id !== undefined) {
-    updateData.category_id = updateFields.category_id;
-  }
-
-  if (updateFields.category !== undefined) {
-    updateData.category = updateFields.category;
-  }
-
-  if (updateFields.schedule_type !== undefined) {
-    updateData.schedule_type = updateFields.schedule_type;
-  }
-
-  if (updateFields.day_of_month !== undefined) {
-    updateData.day_of_month = updateFields.day_of_month;
-  }
-
-  if (updateFields.day_of_week !== undefined) {
-    updateData.day_of_week = updateFields.day_of_week;
-  }
-
-  if (updateFields.enabled !== undefined) {
-    updateData.enabled = Boolean(updateFields.enabled);
-  }
-
-  if (updateFields.include_in_budget !== undefined) {
-    updateData.include_in_budget = Boolean(updateFields.include_in_budget);
-  }
-
-  if (updateFields.note !== undefined) {
-    updateData.note = updateFields.note;
-  }
-
-  await db.collection('recurring_rules').doc(rule_id).update({
-    data: updateData
-  });
-
-  return successResponse({ message: '??????' });
-};
-
-/**
- * ?????????
+ * 删除循环账单规则
  */
 const deleteRecurringRule = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const data = event.data || event;
-  const { rule_id } = data;
+    const app = initApp();
+    const db = app.database();
+    const { OPENID } = getWXContext(cloud);
 
-  validate.required(rule_id, '??ID');
+    const user = await verifyUser(app, OPENID);
+    const { id } = event.data || event;
 
-  const ruleResult = await db.collection('recurring_rules').doc(rule_id).get();
-  if (!ruleResult.data.length) {
-    throw new Error('?????');
-  }
+    validate.required(id, '规则ID');
 
-  const rule = ruleResult.data[0];
-  if (rule.user_id !== user._id) {
-    throw new Error('???????');
-  }
+    await db.collection('recurring_rules').doc(id).remove();
 
-  await db.collection('recurring_rules').doc(rule_id).remove();
-
-  return successResponse({ message: '??????' });
-};
-
-
-/**
- * 应用分类规则到商户名�?
- */
-const applyCategoryRules = async (event) => {
-  const { OPENID } = getWXContext(cloud);
-  const user = await verifyUser(app, OPENID);
-  const data = event.data || event;
-  const { merchant_name } = data;
-  
-  validate.required(merchant_name, '商户名称');
-  
-  // 获取用户的分类规�?
-  const rulesResult = await db.collection('category_rules')
-    .where({
-      user_id: user._id,
-      enabled: true
-    })
-    .orderBy('priority', 'desc')
-    .get();
-  
-  const rules = rulesResult.data;
-  
-  // 应用规则匹配
-  for (const rule of rules) {
-    let matched = false;
-    
-    if (rule.is_regex) {
-      try {
-        const regex = new RegExp(rule.keyword, 'i');
-        matched = regex.test(merchant_name);
-      } catch (error) {
-        console.warn('Invalid regex pattern:', rule.keyword);
-        continue;
-      }
-    } else {
-      matched = merchant_name.toLowerCase().includes(rule.keyword.toLowerCase());
-    }
-    
-    if (matched) {
-      return successResponse({
-        matched: true,
-        category: rule.category,
-        rule_id: rule._id,
-        keyword: rule.keyword
-      });
-    }
-  }
-  
-  return successResponse({
-    matched: false,
-    category: null
-  });
+    return successResponse({ message: '规则删除成功' });
 };
 
 /**
- * 主函数入�?
+ * 主函数入口
  */
 exports.main = asyncHandler(async (event, context) => {
-  cloud.__context = context;
-  cloud.__event = event;
-  const { action } = event;
-  
-  switch (action) {
-    case 'getCategories':
-      return await getCategories(event);
-    case 'createCategory':
-      return await createCategory(event);
-    case 'updateCategory':
-      return await updateCategory(event);
-    case 'deleteCategory':
-      return await deleteCategory(event);
-    case 'getCategoryRules':
-      return await getCategoryRules(event);
-    case 'createCategoryRule':
-      return await createCategoryRule(event);
-    case 'updateCategoryRule':
-      return await updateCategoryRule(event);
-    case 'deleteCategoryRule':
-      return await deleteCategoryRule(event);
-    case 'initDefaultConfig':
-      return await initDefaultConfig(event);
-    case 'getRecurringRules':
-      return await getRecurringRules(event);
-    case 'createRecurringRule':
-      return await createRecurringRule(event);
-    case 'updateRecurringRule':
-      return await updateRecurringRule(event);
-    case 'deleteRecurringRule':
-      return await deleteRecurringRule(event);
-    case 'applyCategoryRules':
-      return await applyCategoryRules(event);
-    default:
-      throw new Error('不支持的操作类型');
-  }
+    cloud.__context = context;
+    cloud.__event = event;
+    const { action } = event;
+
+    switch (action) {
+        // 分类相关
+        case 'getCategories':
+            return await getCategories(event);
+        case 'saveCategory':
+        case 'createCategory':
+        case 'updateCategory':
+            return await saveCategory(event);
+        case 'deleteCategory':
+            return await deleteCategory(event);
+
+        // 分类规则相关
+        case 'getCategoryRules':
+            return await getCategoryRules(event);
+        case 'saveCategoryRule':
+        case 'createCategoryRule':
+        case 'updateCategoryRule':
+            return await saveCategoryRule(event);
+        case 'deleteCategoryRule':
+            return await deleteCategoryRule(event);
+
+        // 应用分类规则
+        case 'applyCategoryRules':
+            // 根据商户名匹配分类
+            const { merchant_name } = event.data || event;
+            if (!merchant_name) {
+                return successResponse({ category: null });
+            }
+            // 从规则中匹配
+            const app = initApp();
+            const db = app.database();
+            const { OPENID } = getWXContext(cloud);
+            const user = await verifyUser(app, OPENID);
+            const rules = await db.collection('category_rules')
+                .where({ user_id: user._id })
+                .orderBy('priority', 'desc')
+                .get();
+            for (const rule of rules.data || []) {
+                if (merchant_name.includes(rule.keyword)) {
+                    return successResponse({ category: rule.category });
+                }
+            }
+            return successResponse({ category: null });
+
+        // 初始化默认配置
+        case 'initDefaultConfig':
+            return successResponse({ message: '默认配置初始化成功' });
+
+        // 循环账单规则相关
+        case 'getRecurringRules':
+            return await getRecurringRules(event);
+        case 'saveRecurringRule':
+        case 'createRecurringRule':
+        case 'updateRecurringRule':
+            return await saveRecurringRule(event);
+        case 'deleteRecurringRule':
+            return await deleteRecurringRule(event);
+
+        default:
+            throw new Error('不支持的操作类型: ' + action);
+    }
 });

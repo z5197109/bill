@@ -1,11 +1,12 @@
 {
   "name": "ocr-service",
   "version": "1.0.0",
-  "description": "OCR 识别云函数",
+  "description": "OCR 识别云函数 - 使用腾讯云 OCR API",
   "main": "index.js",
   "dependencies": {
     "@cloudbase/node-sdk": "^2.4.1",
     "dayjs": "^1.11.19",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "tencentcloud-sdk-nodejs": "^4.0.0"
   }
 }

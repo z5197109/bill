@@ -5,37 +5,37 @@
       "name": "user-service",
       "timeout": 15,
       "runtime": "Nodejs18.15",
-      "installDependency": false
+      "installDependency": true
     },
     {
-      "name": "ledger-service", 
+      "name": "ledger-service",
       "timeout": 15,
       "runtime": "Nodejs18.15",
-      "installDependency": false
+      "installDependency": true
     },
     {
       "name": "bill-service",
       "timeout": 15,
-      "runtime": "Nodejs18.15", 
+      "runtime": "Nodejs18.15",
       "installDependency": false
     },
     {
       "name": "ocr-service",
       "timeout": 30,
       "runtime": "Nodejs18.15",
-      "installDependency": false
+      "installDependency": true
     },
     {
       "name": "analytics-service",
       "timeout": 15,
       "runtime": "Nodejs18.15",
-      "installDependency": false
+      "installDependency": true
     },
     {
       "name": "config-service",
       "timeout": 15,
       "runtime": "Nodejs18.15",
-      "installDependency": false
+      "installDependency": true
     }
   ]
 }

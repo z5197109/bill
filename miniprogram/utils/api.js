@@ -103,29 +103,20 @@ function uploadFile(options) {
     const { filePath, filename, ledgerId } = options
 
     return new Promise((resolve, reject) => {
-        // 先获取上传签名
-        callCloudFunction('file-service', {
-            action: 'getUploadSignature',
-            filename: filename || 'image.jpg',
-            ledger_id: ledgerId || app.globalData.currentLedgerId
-        }).then(signatureData => {
-            // 使用签名上传文件
-            return wx.cloud.uploadFile({
-                cloudPath: signatureData.file_path,
-                filePath: filePath
-            })
+        // 生成唯一云路径
+        const timestamp = Date.now()
+        const random = Math.random().toString(36).substring(2, 8)
+        const ext = (filename || 'image.jpg').split('.').pop()
+        const cloudPath = `bills/${ledgerId || app.globalData.currentLedgerId}/${timestamp}_${random}.${ext}`
+
+        // 直接使用 wx.cloud.uploadFile 上传
+        wx.cloud.uploadFile({
+            cloudPath: cloudPath,
+            filePath: filePath
         }).then(uploadResult => {
-            // 确认上传完成
-            return callCloudFunction('file-service', {
-                action: 'confirmUpload',
-                file_path: uploadResult.fileID,
-                ledger_id: ledgerId || app.globalData.currentLedgerId
-            })
-        }).then(confirmResult => {
             resolve({
-                fileID: confirmResult.file_path,
-                downloadURL: confirmResult.download_url,
-                ...confirmResult
+                fileID: uploadResult.fileID,
+                cloudPath: cloudPath
             })
         }).catch(reject)
     })
@@ -511,36 +502,36 @@ function exportData(params = {}) {
     }).then(res => ({ success: true, ...res }))
 }
 
-// === 文件相关 API ===
+// === 文件相关 API (使用原生 wx.cloud API) ===
 
-function getStorageUsage() {
-    return callCloudFunction('file-service', {
-        action: 'getStorageUsage',
-        needLedgerId: false
+function deleteFile(fileID) {
+    return new Promise((resolve, reject) => {
+        wx.cloud.deleteFile({
+            fileList: [fileID]
+        }).then(res => {
+            resolve({ success: true, ...res })
+        }).catch(reject)
     })
 }
 
-function deleteFile(filePath) {
-    return callCloudFunction('file-service', {
-        action: 'delete',
-        file_path: filePath,
-        needLedgerId: false
+function batchDeleteFiles(fileIDs) {
+    return new Promise((resolve, reject) => {
+        wx.cloud.deleteFile({
+            fileList: fileIDs
+        }).then(res => {
+            resolve({ success: true, ...res })
+        }).catch(reject)
     })
 }
 
-function batchDeleteFiles(filePaths) {
-    return callCloudFunction('file-service', {
-        action: 'batchDelete',
-        file_paths: filePaths,
-        needLedgerId: false
-    })
-}
-
-function getFileDownloadUrl(filePath) {
-    return callCloudFunction('file-service', {
-        action: 'getDownloadUrl',
-        file_path: filePath,
-        needLedgerId: false
+function getFileDownloadUrl(fileID) {
+    return new Promise((resolve, reject) => {
+        wx.cloud.getTempFileURL({
+            fileList: [fileID]
+        }).then(res => {
+            const file = res.fileList && res.fileList[0]
+            resolve({ success: true, url: file ? file.tempFileURL : '' })
+        }).catch(reject)
     })
 }
 
@@ -759,8 +750,7 @@ module.exports = {
     deleteLedgerBackup,
     getTemplates,
     deleteTemplate,
-    // ??
-    getStorageUsage,
+    // 文件操作 (原生 wx.cloud API)
     deleteFile,
     batchDeleteFiles,
     getFileDownloadUrl

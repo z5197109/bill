@@ -1,156 +1,173 @@
 // 共享工具函数
 const dayjs = require('dayjs');
-const { v4: uuidv4 } = require('uuid');
 
 /**
  * 统一响应格式
  */
 const createResponse = (success, data = null, error = null, code = null) => {
-  return {
-    success,
-    data,
-    error,
-    code,
-    timestamp: Date.now()
-  };
+  const response = { success };
+  if (data !== null) response.data = data;
+  if (error !== null) response.error = error;
+  if (code !== null) response.code = code;
+  return response;
 };
+
+const successResponse = (data) => createResponse(true, data);
+
+const errorResponse = (error, code = null) => createResponse(false, null, error, code);
 
 /**
- * 成功响应
- */
-const successResponse = (data = null) => {
-  return createResponse(true, data);
-};
-
-/**
- * 错误响应
- */
-const errorResponse = (error, code = 'UNKNOWN_ERROR') => {
-  return createResponse(false, null, error, code);
-};
-
-/**
- * 验证用户权限中间件
- */
-const resolveAddId = (result) => {
-  if (!result) return undefined;
-  if (result._id) return result._id;
-  if (result.id) return result.id;
-  if (Array.isArray(result.ids) && result.ids.length > 0) return result.ids[0];
-  return undefined;
-};
-
-const normalizeDocId = (doc, fallbackId) => {
-  if (!doc) return doc;
-  const id = doc._id || doc.id || fallbackId;
-  if (id && !doc._id) doc._id = id;
-  if (id && !doc.id) doc.id = id;
-  return doc;
-};
-
-const verifyUser = async (cloud, openid) => {
-  if (!openid) {
-    throw new Error('用户未登录');
-  }
-
-  const db = cloud.database();
-  const userResult = await db.collection('users')
-    .where({ openid })
-    .get();
-
-  if (!userResult.data.length) {
-    // 如果用户不存在，创建新用户
-    const newUser = {
-      openid,
-      nickname: '微信用户',
-      avatar: '',
-      created_at: new Date(),
-      updated_at: new Date(),
-      settings: {
-        default_ledger_id: null,
-        theme: 'light',
-        language: 'zh-CN'
-      }
-    };
-
-    const createResult = await db.collection('users').add({
-      data: newUser
-    });
-
-    const createdId = resolveAddId(createResult);
-    return normalizeDocId({
-      ...newUser,
-      _id: createdId,
-      id: createdId
-    }, createdId);
-  }
-
-  return normalizeDocId(userResult.data[0]);
-};
-
-/**
- * 获取微信上下文，处理测试环境
+ * 获取微信云上下文
  */
 const getWXContext = (cloud) => {
-  try {
-    if (cloud && typeof cloud.getWXContext === 'function') {
-      const ctx = cloud.getWXContext();
-      if (ctx && ctx.OPENID) {
-        return ctx;
-      }
-    }
-  } catch (error) {
-    // ignore and fallback
-  }
-  const ctxFromCloud = cloud && cloud.__context;
-  if (ctxFromCloud && ctxFromCloud.OPENID) {
-    return ctxFromCloud;
-  }
-  if (ctxFromCloud && ctxFromCloud.wxContext && ctxFromCloud.wxContext.OPENID) {
-    return ctxFromCloud.wxContext;
-  }
-  const event = cloud && cloud.__event;
-  if (event) {
-    const eventCtx = event.userInfo || event.wxContext || event.WXContext || event.user;
-    const openid =
-      (eventCtx && (eventCtx.OPENID || eventCtx.openId || eventCtx.openid)) ||
-      event.OPENID ||
-      event.openId ||
-      event.openid;
-    if (openid) {
-      return {
-        OPENID: openid,
-        APPID: (eventCtx && (eventCtx.APPID || eventCtx.appId || eventCtx.appid)) || event.APPID,
-        UNIONID: (eventCtx && (eventCtx.UNIONID || eventCtx.unionId || eventCtx.unionid)) || event.UNIONID
-      };
+  // 从 cloud.__context 获取上下文（CloudBase）
+  const context = cloud.__context || {};
+  const event = cloud.__event || {};
+
+  // 尝试多种方式获取 OPENID
+  let OPENID = null;
+  let UNIONID = null;
+  let APPID = null;
+
+  // 方法1: 从 cloud.getWXContext() 获取（旧版 wx-server-sdk）
+  if (cloud.getWXContext) {
+    try {
+      const wxContext = cloud.getWXContext();
+      OPENID = OPENID || wxContext.OPENID;
+      UNIONID = UNIONID || wxContext.UNIONID;
+      APPID = APPID || wxContext.APPID;
+    } catch (e) {
+      console.log('getWXContext failed:', e.message);
     }
   }
-  // ????????????????
-  return {
-    OPENID: 'test-openid-123',
-    APPID: 'test-appid',
-    UNIONID: 'test-unionid'
-  };
+
+  // 方法2: 从 context 中获取
+  if (context.credentials) {
+    OPENID = OPENID || context.credentials.openId || context.credentials.openid;
+    UNIONID = UNIONID || context.credentials.unionId || context.credentials.unionid;
+  }
+  OPENID = OPENID || context.OPENID || context.openId || context.openid;
+  UNIONID = UNIONID || context.UNIONID || context.unionId || context.unionid;
+  APPID = APPID || context.APPID || context.appId || context.appid;
+
+  // 方法3: 从 event 中获取（小程序端传递）
+  OPENID = OPENID || event.userInfo?.openId || event.userInfo?.openid;
+  OPENID = OPENID || event.OPENID || event.openId || event.openid;
+  UNIONID = UNIONID || event.UNIONID || event.unionId || event.unionid;
+  APPID = APPID || event.APPID || event.appId || event.appid;
+
+  // 方法4: 从 event.data 中获取
+  if (event.data) {
+    OPENID = OPENID || event.data.OPENID || event.data.openId || event.data.openid;
+  }
+
+  console.log('getWXContext result:', { OPENID, UNIONID, APPID });
+
+  return { OPENID, UNIONID, APPID };
 };
 
 /**
- * 验证用户对资源的访问权限
+ * 验证用户
+ */
+const verifyUser = async (app, openid) => {
+  if (!openid) {
+    throw new Error('未获取到用户标识');
+  }
+
+  const db = app.database();
+  const userResult = await db.collection('users')
+    .where({ openid })
+    .limit(1)
+    .get();
+
+  if (userResult.data && userResult.data.length > 0) {
+    return userResult.data[0];
+  }
+
+  // 用户不存在，创建新用户
+  const newUser = {
+    openid,
+    created_at: new Date(),
+    updated_at: new Date()
+  };
+
+  const result = await db.collection('users').add(newUser);
+  newUser._id = result.id;
+  return newUser;
+};
+
+/**
+ * 验证资源访问权限
  */
 const verifyResourceAccess = (resource, userId) => {
-  if (!resource.user_id || resource.user_id !== userId) {
+  if (!resource) {
+    throw new Error('资源不存在');
+  }
+  const resourceUserId = resource.user_id || resource.userId;
+  if (resourceUserId && resourceUserId !== userId) {
     throw new Error('无权访问该资源');
   }
   return true;
 };
 
 /**
- * 生成唯一文件名
+ * 异步处理器包装
  */
-const generateFileName = (originalName) => {
-  const timestamp = Date.now();
-  const uuid = uuidv4().substring(0, 8);
-  const ext = originalName.split('.').pop();
-  return `${timestamp}_${uuid}.${ext}`;
+const asyncHandler = (fn) => {
+  return async (event, context) => {
+    try {
+      return await fn(event, context);
+    } catch (error) {
+      console.error('Function error:', error);
+      console.error('Error stack:', error.stack);
+
+      let code = 'INTERNAL_ERROR';
+      if (error.message && (
+        error.message.includes('不能为空') ||
+        error.message.includes('格式不正确') ||
+        error.message.includes('必须是')
+      )) {
+        code = 'VALIDATION_ERROR';
+      }
+
+      return errorResponse(error.message, code);
+    }
+  };
+};
+
+/**
+ * 验证函数
+ */
+const validate = {
+  required: (value, fieldName) => {
+    if (value === undefined || value === null || value === '') {
+      throw new Error(`${fieldName} 不能为空`);
+    }
+    return value;
+  },
+
+  number: (value, fieldName) => {
+    const num = parseFloat(value);
+    if (isNaN(num)) {
+      throw new Error(`${fieldName} 必须是数字`);
+    }
+    return num;
+  },
+
+  date: (value, fieldName) => {
+    if (!dayjs(value).isValid()) {
+      throw new Error(`${fieldName} 日期格式不正确`);
+    }
+    return value;
+  },
+
+  fileType: (filename, allowedTypes) => {
+    const ext = filename.split('.').pop().toLowerCase();
+    if (!allowedTypes.includes(ext)) {
+      throw new Error(`不支持的文件类型: ${ext}`);
+    }
+    return ext;
+  }
 };
 
 /**
@@ -161,13 +178,22 @@ const formatDate = (date, format = 'YYYY-MM-DD') => {
 };
 
 /**
- * 解析分类名称
+ * 分页处理
+ */
+const paginate = (page = 1, pageSize = 20) => {
+  const p = Math.max(1, parseInt(page) || 1);
+  const size = Math.min(100, Math.max(1, parseInt(pageSize) || 20));
+  return {
+    limit: size,
+    skip: (p - 1) * size
+  };
+};
+
+/**
+ * 解析分类
  */
 const parseCategory = (categoryName) => {
-  if (!categoryName) {
-    return { major: '', minor: '' };
-  }
-
+  if (!categoryName) return { major: '', minor: '' };
   const parts = categoryName.split('/');
   return {
     major: parts[0] || '',
@@ -176,7 +202,7 @@ const parseCategory = (categoryName) => {
 };
 
 /**
- * 格式化分类名称
+ * 格式化分类
  */
 const formatCategory = (major, minor) => {
   major = (major || '').trim();
@@ -185,79 +211,12 @@ const formatCategory = (major, minor) => {
 };
 
 /**
- * 分页查询辅助函数
+ * 生成文件名
  */
-const paginate = (page = 1, limit = 20) => {
-  const skip = (page - 1) * limit;
-  return { skip, limit: Math.min(limit, 100) }; // 最大限制100条
-};
-
-/**
- * 数据验证函数
- */
-const validate = {
-  required: (value, fieldName) => {
-    if (value === null || value === undefined || value === '') {
-      throw new Error(`${fieldName} 不能为空`);
-    }
-  },
-
-  number: (value, fieldName) => {
-    if (isNaN(value)) {
-      throw new Error(`${fieldName} 必须是数字`);
-    }
-  },
-
-  positiveNumber: (value, fieldName) => {
-    validate.number(value, fieldName);
-    if (value < 0) {
-      throw new Error(`${fieldName} 必须是正数`);
-    }
-  },
-
-  date: (value, fieldName) => {
-    if (!dayjs(value).isValid()) {
-      throw new Error(`${fieldName} 日期格式不正确`);
-    }
-  },
-
-  fileType: (filename, allowedTypes) => {
-    const ext = filename.split('.').pop().toLowerCase();
-    if (!allowedTypes.includes(ext)) {
-      throw new Error(`不支持的文件类型: ${ext}`);
-    }
-  }
-};
-
-/**
- * 错误处理包装器
- */
-const asyncHandler = (fn) => {
-  return async (event, context) => {
-    try {
-      return await fn(event, context);
-    } catch (error) {
-      console.error('Function error:', error);
-      console.error('Error stack:', error.stack);
-
-      // 根据错误类型返回不同的错误码
-      let code = 'INTERNAL_ERROR';
-      // 在开发环境返回详细错误信息便于调试
-      let message = error.message || '服务暂时不可用，请稍后重试';
-
-      if (error.message && error.message.includes('用户未登录')) {
-        code = 'UNAUTHORIZED';
-      } else if (error.message && error.message.includes('无权访问')) {
-        code = 'FORBIDDEN';
-      } else if (error.message && (error.message.includes('不能为空') ||
-        error.message.includes('格式不正确') ||
-        error.message.includes('必须是'))) {
-        code = 'VALIDATION_ERROR';
-      }
-
-      return errorResponse(message, code);
-    }
-  };
+const generateFileName = (prefix, ext) => {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 8);
+  return `${prefix}_${timestamp}_${random}.${ext}`;
 };
 
 module.exports = {
