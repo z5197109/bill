@@ -71,6 +71,15 @@ function normalizeBill(bill) {
  * @returns {Promise}
  */
 function callCloudFunction(functionName, data = {}) {
+    if (app && typeof app.initCloudBase === 'function') {
+        const ok = app.initCloudBase()
+        if (!ok) {
+            return Promise.reject(new Error('CloudBase not initialized'))
+        }
+    }
+    if (!wx.cloud || !wx.cloud.callFunction) {
+        return Promise.reject(new Error('CloudBase not available'))
+    }
     return new Promise((resolve, reject) => {
         // 如果需要 ledger_id，自动添加
         let requestData = { ...data }
@@ -574,21 +583,27 @@ function exportBills(params = {}) {
 function getDashboardSummary() {
     const ledgerId = app.globalData.currentLedgerId
     if (!ledgerId) {
-        return Promise.reject(new Error('璐︽湰ID 不能为空'))
+        return Promise.reject(new Error('Ledger ID is required'))
     }
 
-    const now = new Date()
-    const year = now.getFullYear()
-    const month = now.getMonth() + 1
-
     return Promise.all([
-        getMonthlyStats({ year, month }),
+        callCloudFunction('analytics-service', {
+            action: 'dashboard',
+            ledger_id: ledgerId
+        }),
         getLedgers(),
         getCategories()
-    ]).then(([monthlyRes, ledgerRes, categoryRes]) => {
-        const summary = monthlyRes && monthlyRes.summary ? monthlyRes.summary : {}
-        const totalAmount = summary.total_amount || 0
-        const budgetAmount = summary.budget_amount || 0
+    ]).then(([summaryRes, ledgerRes, categoryRes]) => {
+        const summary = summaryRes || {}
+        const totalAmount = summary.total_amount !== undefined
+            ? summary.total_amount
+            : (summary.monthly_spending || 0)
+        const budgetAmount = summary.budget_amount !== undefined
+            ? summary.budget_amount
+            : (summary.monthly_spending || 0)
+        const nonBudgetSpending = summary.non_budget_spending !== undefined
+            ? summary.non_budget_spending
+            : Math.max(totalAmount - budgetAmount, 0)
 
         const ledgers = ledgerRes && ledgerRes.ledgers ? ledgerRes.ledgers : []
         const currentLedger = ledgers.find(l => l.id === ledgerId || l._id === ledgerId)
@@ -600,18 +615,18 @@ function getDashboardSummary() {
             ? Math.round(usedAmount / totalBudget * 10000) / 100
             : 0
 
-        const categoryStats = monthlyRes && monthlyRes.category_stats ? monthlyRes.category_stats : {}
         const categories = categoryRes && categoryRes.categories ? categoryRes.categories : []
-
-        const topCategories = Object.keys(categoryStats).map(categoryName => {
-            const stat = categoryStats[categoryName] || { amount: 0, percentage: 0 }
-            const match = categories.find(c => (c.full_name || c.name) === categoryName)
-            const percent = stat.percentage || (totalAmount > 0
-                ? Math.round(stat.amount / totalAmount * 10000) / 100
-                : 0)
+        const topRaw = summary.top_categories || []
+        const topCategories = topRaw.map(item => {
+            const name = item.category || item.name || item.full_name || item
+            const amount = item.amount || 0
+            const match = categories.find(c => (c.full_name || c.name) === name)
+            const percent = totalAmount > 0
+                ? Math.round(amount / totalAmount * 10000) / 100
+                : 0
             return {
-                category: categoryName,
-                amount: stat.amount || 0,
+                category: name,
+                amount,
                 percent,
                 color: match && match.color ? match.color : '#1890ff'
             }
@@ -621,7 +636,7 @@ function getDashboardSummary() {
             success: true,
             data: {
                 monthly_spending: totalAmount,
-                non_budget_spending: Math.max(totalAmount - budgetAmount, 0),
+                non_budget_spending: nonBudgetSpending,
                 budget_info: {
                     total_budget: totalBudget,
                     used_amount: usedAmount,

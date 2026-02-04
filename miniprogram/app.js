@@ -2,7 +2,8 @@
 App({
     globalData: {
         // CloudBase 环境 ID
-        cloudbaseEnv: 'dev-4g40wh23d397fbae', // 请修改为您的环境 ID
+        cloudbaseEnv: 'dev-4g40wh23d397fbae',
+        cloudInitialized: false,
         // 当前账本 ID
         currentLedgerId: null,
         // 账本列表
@@ -31,21 +32,33 @@ App({
 
     // 初始化云开发
     initCloudBase() {
-        if (!wx.cloud) {
-            console.error('请使用 2.2.3 或以上的基础库以使用云能力')
-            return
+        if (this.globalData.cloudInitialized) return true
+        if (!wx.cloud || !wx.cloud.init) {
+            console.error('Please use base library >= 2.2.3 to enable cloud')
+            return false
         }
-        
-        wx.cloud.init({
-            env: this.globalData.cloudbaseEnv,
-            traceUser: true
-        })
-        
-        console.log('CloudBase 初始化完成')
+        const env = this.globalData.cloudbaseEnv || wx.cloud.DYNAMIC_CURRENT_ENV
+        if (!env) {
+            console.error('CloudBase env is not configured')
+            return false
+        }
+        try {
+            wx.cloud.init({
+                env,
+                traceUser: true
+            })
+            this.globalData.cloudInitialized = true
+            console.log('CloudBase initialized')
+            return true
+        } catch (err) {
+            console.error('cloud init error:', err)
+            return false
+        }
     },
 
     // Ensure cloud user exists (no user profile required)
     ensureCloudLogin() {
+        this.initCloudBase()
         const that = this
         return new Promise((resolve) => {
             wx.login({
@@ -211,6 +224,9 @@ App({
 
     // 调用云函数的通用方法
     callCloudFunction(functionName, data) {
+        if (!this.initCloudBase || !this.initCloudBase()) {
+            return Promise.reject(new Error('CloudBase not initialized'))
+        }
         const payload = data && data.data === undefined ? { ...data, data: { ...data } } : data
         return wx.cloud.callFunction({
             name: functionName,

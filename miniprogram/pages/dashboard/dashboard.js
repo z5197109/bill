@@ -21,6 +21,7 @@ Page({
         if (!await util.ensureLedger(app)) {
             return
         }
+        this._dashboardRetry = 0
         this.loadDashboard()
     },
 
@@ -56,6 +57,14 @@ Page({
                     loading: false,
                     lastRefresh: this.formatTime(new Date())
                 })
+
+                const retryCount = this._dashboardRetry || 0
+                if (res.data && res.data.monthly_spending === 0 && retryCount < 1) {
+                    this._dashboardRetry = retryCount + 1
+                    setTimeout(() => this.loadDashboard(), 600)
+                } else {
+                    this._dashboardRetry = 0
+                }
             } else {
                 throw new Error(res.error || '加载失败')
             }

@@ -29,11 +29,10 @@ const getDashboardSummary = async (event) => {
     const monthStart = now.startOf('month').format('YYYY-MM-DD');
     const monthEnd = now.endOf('month').format('YYYY-MM-DD');
 
-    // 构建查询条件
+    // 构建查询条件（不限制预算字段，后续在内存中过滤）
     const query = {
         user_id: user._id,
         is_deleted: _.neq(true),
-        include_in_budget: true,
         bill_date: _.gte(monthStart).and(_.lte(monthEnd))
     };
 
@@ -45,8 +44,11 @@ const getDashboardSummary = async (event) => {
     const billsResult = await db.collection('bills').where(query).get();
     const bills = billsResult.data || [];
 
-    // 计算本月总支出
+    const budgetBills = bills.filter(bill => bill.include_in_budget !== false);
+
+    // 计算本月总支出（全部）与预算内支出
     const monthlySpending = bills.reduce((sum, bill) => sum + (bill.amount || 0), 0);
+    const budgetSpending = budgetBills.reduce((sum, bill) => sum + (bill.amount || 0), 0);
 
     // 获取账本预算
     let monthlyBudget = 0;
@@ -73,14 +75,16 @@ const getDashboardSummary = async (event) => {
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
 
-    // 计算预算使用率
-    const budgetUsage = monthlyBudget > 0 ? (monthlySpending / monthlyBudget * 100).toFixed(1) : 0;
+    // 计算预算使用率（仅预算内支出）
+    const budgetUsage = monthlyBudget > 0 ? (budgetSpending / monthlyBudget * 100).toFixed(1) : 0;
 
     return successResponse({
         monthly_spending: monthlySpending,
+        budget_amount: budgetSpending,
+        non_budget_spending: Math.max(0, monthlySpending - budgetSpending),
         monthly_budget: monthlyBudget,
         budget_usage: parseFloat(budgetUsage),
-        budget_remaining: Math.max(0, monthlyBudget - monthlySpending),
+        budget_remaining: Math.max(0, monthlyBudget - budgetSpending),
         bill_count: bills.length,
         top_categories: topCategories,
         month: now.format('YYYY-MM')
@@ -106,7 +110,7 @@ const getMonthlyTrend = async (event) => {
     const query = {
         user_id: user._id,
         is_deleted: _.neq(true),
-        include_in_budget: true,
+        include_in_budget: _.neq(false),
         bill_date: _.gte(startDate).and(_.lte(endDate))
     };
 
@@ -157,7 +161,7 @@ const getCategoryStats = async (event) => {
     const query = {
         user_id: user._id,
         is_deleted: _.neq(true),
-        include_in_budget: true,
+        include_in_budget: _.neq(false),
         bill_date: _.gte(startDateStr).and(_.lte(endDateStr))
     };
 
@@ -222,7 +226,7 @@ const getDailyStats = async (event) => {
     const query = {
         user_id: user._id,
         is_deleted: _.neq(true),
-        include_in_budget: true,
+        include_in_budget: _.neq(false),
         bill_date: _.gte(startDateStr).and(_.lte(endDateStr))
     };
 
@@ -273,7 +277,7 @@ const getYearlyStats = async (event) => {
     const query = {
         user_id: user._id,
         is_deleted: _.neq(true),
-        include_in_budget: true,
+        include_in_budget: _.neq(false),
         bill_date: _.gte(startDate).and(_.lte(endDate))
     };
 

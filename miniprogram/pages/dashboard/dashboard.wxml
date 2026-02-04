@@ -57,9 +57,7 @@
           </view>
           <view class="budget-item">
             <text class="budget-label">剩余</text>
-            <text class="budget-value {{dashboardData.budget_info.remaining_budget < 0 ? 'over-budget' : ''}}">
-              ¥{{dashboardData.budget_info.remaining_budget || 0}}
-            </text>
+            <text class="budget-value {dashboardData.budget_info.remaining_budget < 0 ? 'over-budget' : ''}">¥{{dashboardData.budget_info.remaining_budget || 0}}</text>
           </view>
         </view>
         <!-- 进度条 -->
