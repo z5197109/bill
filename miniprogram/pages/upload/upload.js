@@ -127,33 +127,56 @@ Page({
         }
     },
 
-    // 上传单张图片
-    uploadSingleImage(filePath) {
-        return new Promise((resolve, reject) => {
-            wx.uploadFile({
-                url: `${app.globalData.baseUrl}/api/upload`,
-                filePath,
-                name: 'files',
-                formData: {
-                    bill_date: this.data.billDate,
-                    ledger_id: app.globalData.currentLedgerId
-                },
-                success(res) {
-                    if (res.statusCode >= 200 && res.statusCode < 300) {
-                        try {
-                            resolve(JSON.parse(res.data))
-                        } catch (e) {
-                            reject(new Error('解析响应失败'))
-                        }
-                    } else {
-                        reject(new Error(`上传失败: ${res.statusCode}`))
-                    }
-                },
-                fail(err) {
-                    reject(new Error(err.errMsg || '上传失败'))
+    // 上传单张图片并识别
+    async uploadSingleImage(filePath) {
+        try {
+            // 读取图片为 Base64
+            const fs = wx.getFileSystemManager()
+            const fileData = fs.readFileSync(filePath)
+            const base64 = wx.arrayBufferToBase64(fileData)
+
+            console.log('开始OCR识别, Base64长度:', base64.length)
+
+            // 调用云函数进行 OCR 识别
+            const res = await api.processImageOCR(base64, app.globalData.currentLedgerId)
+
+            console.log('OCR云函数返回:', JSON.stringify(res))
+
+            // 处理不同的响应格式
+            let ocrData = null
+
+            // 格式1: { success: true, data: { merchant, amount, ... } }
+            if (res.success && res.data) {
+                ocrData = res.data
+            }
+            // 格式2: 直接返回 { merchant, amount, ... }
+            else if (res.merchant !== undefined || res.amount !== undefined) {
+                ocrData = res
+            }
+            // 格式3: { success: true, merchant, amount, ... }
+            else if (res.success) {
+                ocrData = res
+            }
+
+            if (ocrData) {
+                return {
+                    success: true,
+                    results: [{
+                        merchant: ocrData.merchant || '',
+                        amount: ocrData.amount || 0,
+                        category: ocrData.category || '',
+                        raw_text: ocrData.raw_text || [],
+                        filename: filePath.split('/').pop() || 'image.jpg'
+                    }]
                 }
-            })
-        })
+            } else {
+                console.error('OCR返回格式异常:', res)
+                throw new Error(res.error || res.message || 'OCR识别失败')
+            }
+        } catch (err) {
+            console.error('OCR识别出错:', err)
+            throw err
+        }
     },
 
     // 切换选中状态

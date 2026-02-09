@@ -1,11 +1,6 @@
-// OCR 识别云函数 - 使用腾讯云 OCR API
+// OCR 识别云函数 - 使用 OCR.space API
 const cloud = require('@cloudbase/node-sdk');
 const { successResponse, errorResponse, asyncHandler, verifyUser, validate, getWXContext } = require('./shared/utils');
-const config = require('./shared/config');
-
-// 腾讯云 OCR SDK
-const tencentcloud = require('tencentcloud-sdk-nodejs');
-const OcrClient = tencentcloud.ocr.v20181119.Client;
 
 /**
  * 初始化云开发
@@ -17,30 +12,92 @@ const initApp = () => {
 };
 
 /**
- * 创建腾讯云 OCR 客户端
+ * 调用 OCR.space API
  */
-const createOcrClient = () => {
-    const secretId = process.env.TENCENT_SECRET_ID;
-    const secretKey = process.env.TENCENT_SECRET_KEY;
+const callOcrSpaceAPI = async (imageBase64) => {
+    // 获取 API 密钥
+    const apiKey = process.env.OCR_SPACE_API_KEY;
 
-    if (!secretId || !secretKey) {
-        throw new Error('请配置 TENCENT_SECRET_ID 和 TENCENT_SECRET_KEY 环境变量');
+    if (!apiKey) {
+        throw new Error('请配置 OCR_SPACE_API_KEY 环境变量');
     }
 
-    const clientConfig = {
-        credential: {
-            secretId: secretId,
-            secretKey: secretKey,
-        },
-        region: 'ap-beijing',
-        profile: {
-            httpProfile: {
-                endpoint: 'ocr.tencentcloudapi.com',
-            },
-        },
-    };
+    // 使用 https 模块发起请求
+    const https = require('https');
+    const querystring = require('querystring');
 
-    return new OcrClient(clientConfig);
+    // 准备请求数据
+    const postData = querystring.stringify({
+        apikey: apiKey,
+        base64Image: `data:image/png;base64,${imageBase64}`,
+        language: 'chs',  // 简体中文
+        isOverlayRequired: 'false',
+        OCREngine: '2'  // Engine 2 支持中文效果更好
+    });
+
+    return new Promise((resolve, reject) => {
+        const options = {
+            hostname: 'api.ocr.space',
+            port: 443,
+            path: '/parse/image',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Content-Length': Buffer.byteLength(postData)
+            }
+        };
+
+        const req = https.request(options, (res) => {
+            let data = '';
+
+            res.on('data', (chunk) => {
+                data += chunk;
+            });
+
+            res.on('end', () => {
+                try {
+                    const result = JSON.parse(data);
+                    if (result.OCRExitCode === 1 || result.OCRExitCode === 2) {
+                        // 成功
+                        const parsedResults = result.ParsedResults || [];
+                        const textLines = [];
+
+                        for (const pr of parsedResults) {
+                            if (pr.ParsedText) {
+                                // 按行分割文本
+                                const lines = pr.ParsedText.split(/\r?\n/).filter(line => line.trim());
+                                textLines.push(...lines);
+                            }
+                        }
+
+                        resolve({
+                            words_result: textLines.map(text => ({ DetectedText: text })),
+                            words_result_num: textLines.length
+                        });
+                    } else {
+                        // 失败
+                        console.error('OCR.space error:', result);
+                        resolve({
+                            words_result: [],
+                            words_result_num: 0,
+                            error: result.ErrorMessage || 'OCR 识别失败'
+                        });
+                    }
+                } catch (e) {
+                    console.error('Parse OCR response error:', e);
+                    resolve({ words_result: [], words_result_num: 0 });
+                }
+            });
+        });
+
+        req.on('error', (e) => {
+            console.error('OCR request error:', e);
+            resolve({ words_result: [], words_result_num: 0 });
+        });
+
+        req.write(postData);
+        req.end();
+    });
 };
 
 /**
@@ -71,8 +128,8 @@ const recognizeBill = async (event) => {
         }
     }
 
-    // 调用腾讯云 OCR 服务
-    const ocrResult = await callTencentOCR(imageData);
+    // 调用 OCR.space API
+    const ocrResult = await callOcrSpaceAPI(imageData);
 
     // 解析 OCR 结果
     const parsedResult = parseOCRResult(ocrResult, ledger_id);
@@ -84,34 +141,6 @@ const recognizeBill = async (event) => {
         category: parsedResult.category,
         raw_text: parsedResult.rawText
     });
-};
-
-/**
- * 调用腾讯云 OCR 服务
- */
-const callTencentOCR = async (imageBase64) => {
-    try {
-        const client = createOcrClient();
-
-        // 使用通用印刷体识别（也可以使用财务票据识别等更专业的接口）
-        const params = {
-            ImageBase64: imageBase64
-        };
-
-        const result = await client.GeneralBasicOCR(params);
-
-        return {
-            words_result: result.TextDetections || [],
-            words_result_num: result.TextDetections ? result.TextDetections.length : 0
-        };
-    } catch (error) {
-        console.error('腾讯云 OCR 调用失败:', error);
-        // 返回空结果，让后续逻辑处理
-        return {
-            words_result: [],
-            words_result_num: 0
-        };
-    }
 };
 
 /**
@@ -130,7 +159,7 @@ const parseOCRResult = (ocrResult, ledgerId) => {
         return result;
     }
 
-    // 从腾讯云 OCR 结果中提取文本
+    // 提取文本行
     const textLines = ocrResult.words_result.map(item => {
         return item.DetectedText || item.words || item.text || '';
     });
@@ -266,7 +295,7 @@ const matchCategory = (merchant) => {
     if (!merchant) return '其他/未分类';
 
     const merchantLower = merchant.toLowerCase();
-    const categoryMapping = config.defaultCategories || {
+    const categoryMapping = {
         '美团': '餐饮/外卖',
         '饿了么': '餐饮/外卖',
         '肯德基': '餐饮/快餐',
@@ -361,12 +390,12 @@ const batchRecognize = async (event) => {
  */
 const getStatus = async (event) => {
     // 检查 OCR 服务是否可用
-    const hasCredentials = process.env.TENCENT_SECRET_ID && process.env.TENCENT_SECRET_KEY;
+    const hasCredentials = !!process.env.OCR_SPACE_API_KEY;
 
     return successResponse({
         available: hasCredentials,
-        provider: 'tencent_cloud',
-        message: hasCredentials ? 'OCR 服务可用' : '请配置 TENCENT_SECRET_ID 和 TENCENT_SECRET_KEY'
+        provider: 'ocr.space',
+        message: hasCredentials ? 'OCR 服务可用' : '请配置 OCR_SPACE_API_KEY 环境变量'
     });
 };
 
