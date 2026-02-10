@@ -81,12 +81,7 @@
       <block wx:if="{{dashboardData.top_categories && dashboardData.top_categories.length > 0}}">
         <!-- 简单饼图可视化 -->
         <view class="pie-chart-container">
-          <view class="pie-visual">
-            <view wx:for="{{dashboardData.top_categories}}" wx:key="category" 
-              class="pie-segment" 
-              style="--segment-color: {{item.color || '#1890ff'}}; --segment-percent: {{item.percent || 0}}"
-            ></view>
-          </view>
+          <view class="pie-visual" style="background: {{pieGradient}}"></view>
           <view class="pie-center">
             <text class="pie-total">¥{{dashboardData.monthly_spending || 0}}</text>
             <text class="pie-label">总支出</text>

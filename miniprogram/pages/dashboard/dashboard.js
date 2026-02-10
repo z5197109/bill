@@ -10,7 +10,8 @@ Page({
         error: null,
         dashboardData: null,
         currentMonth: '',
-        lastRefresh: ''
+        lastRefresh: '',
+        pieGradient: ''
     },
 
     onLoad() {
@@ -52,8 +53,12 @@ Page({
         try {
             const res = await api.getDashboardSummary()
             if (res.success && res.data) {
+                // 构建动态环形图渐变
+                const pieGradient = this.buildPieGradient(res.data.top_categories)
+
                 this.setData({
                     dashboardData: res.data,
+                    pieGradient: pieGradient,
                     loading: false,
                     lastRefresh: this.formatTime(new Date())
                 })
@@ -90,6 +95,45 @@ Page({
         wx.switchTab({
             url: '/pages/upload/upload'
         })
+    },
+
+    // 构建环形图的 conic-gradient
+    buildPieGradient(categories) {
+        if (!categories || categories.length === 0) {
+            return 'conic-gradient(#e8e8e8 0% 100%)'
+        }
+
+        // 默认颜色列表
+        const defaultColors = [
+            '#1890ff', '#52c41a', '#faad14', '#f5222d', '#722ed1',
+            '#13c2c2', '#eb2f96', '#fa8c16', '#2f54eb', '#a0d911'
+        ]
+
+        // 计算总金额
+        const totalAmount = categories.reduce((sum, cat) => sum + (cat.amount || 0), 0)
+        if (totalAmount <= 0) {
+            return 'conic-gradient(#e8e8e8 0% 100%)'
+        }
+
+        // 构建渐变段
+        let currentPercent = 0
+        const segments = []
+
+        categories.forEach((cat, index) => {
+            const percent = (cat.amount || 0) / totalAmount * 100
+            const color = cat.color || defaultColors[index % defaultColors.length]
+            const start = currentPercent
+            const end = currentPercent + percent
+            segments.push(`${color} ${start.toFixed(1)}% ${end.toFixed(1)}%`)
+            currentPercent = end
+        })
+
+        // 如果还有剩余（不在top分类中的），用灰色填充
+        if (currentPercent < 99.9) {
+            segments.push(`#e8e8e8 ${currentPercent.toFixed(1)}% 100%`)
+        }
+
+        return `conic-gradient(${segments.join(', ')})`
     },
 
     // 计算预算进度颜色

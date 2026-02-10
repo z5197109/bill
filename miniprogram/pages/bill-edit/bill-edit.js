@@ -80,7 +80,7 @@ Page({
     handleAmountInput(e) { this.setData({ amount: e.detail.value }) },
     handleDateChange(e) { this.setData({ date: e.detail.value }) },
     handleNoteInput(e) { this.setData({ note: e.detail.value }) },
-    handleCategoryChange(e) { this.setData({ categoryIndex: e.detail.value }) },
+    handleCategoryChange(e) { this.setData({ categoryIndex: parseInt(e.detail.value, 10) }) },
     handleBudgetSwitch(e) { this.setData({ includeInBudget: e.detail.value }) },
 
     async handleSave() {

@@ -215,12 +215,8 @@
   width: 200rpx;
   height: 200rpx;
   border-radius: 50%;
-  background: conic-gradient(
-    #1890ff 0% 40%, 
-    #52c41a 40% 65%, 
-    #faad14 65% 85%, 
-    #f5222d 85% 100%
-  );
+  /* gradient is set dynamically via inline style */
+  background: #e8e8e8;
   position: relative;
 }
 
